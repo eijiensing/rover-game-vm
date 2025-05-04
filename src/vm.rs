@@ -15,10 +15,9 @@ pub enum Opcode {
 }
 
 #[derive(Debug)]
-pub enum Operand {
-    Register(u8),
-    Immediate(i32),
-}
+pub struct Register(pub u8);
+#[derive(Debug)]
+pub struct Immediate(pub i32);
 
 #[derive(Debug)]
 pub struct DebugInformation {
