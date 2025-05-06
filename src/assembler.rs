@@ -10,5 +10,8 @@ impl Assembler {
         Self {}
     }
 
-    pub fn assemble(text: &str) {}
+    pub fn assemble(text: &str) {
+        let mut text = String::new();
+        for line in text.lines() {}
+    }
 }
