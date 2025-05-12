@@ -1,4 +1,5 @@
 mod assembler;
+mod inst;
 mod instruction_parser;
 mod vm;
 

@@ -1,84 +1,56 @@
+use crate::inst::{MASK_ADDI, MATCH_ADDI};
+
 #[derive(Default)]
 pub struct VM {
-    pc: usize,
+    memory: Vec<u8>,
     registers: [i32; 32],
-    instructions: Vec<Instruction>,
-}
-
-#[derive(Debug)]
-pub enum Opcode {
-    LoadImmediate {
-        destination: Register,
-        value: Immediate,
-    },
-    Addition,
-}
-
-#[derive(Debug)]
-pub struct Register(pub u8);
-#[derive(Debug)]
-pub struct Immediate(pub i32);
-
-#[derive(Debug)]
-pub struct DebugInformation {
-    line_number: u32,
-}
-
-#[derive(Debug)]
-pub struct Instruction {
-    pub energy_cost: u16,
-    pub opcode: Opcode,
-    pub debug: Option<DebugInformation>,
+    pc: usize,
 }
 
 impl VM {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(begin_address: usize, memory: Vec<u8>) -> Self {
+        Self {
+            pc: begin_address,
+            memory: memory,
+            registers: [0; 32],
+        }
     }
 
     pub fn run(&mut self) {
-        while self.pc < self.instructions.len() {
-            self.execute();
-        }
+        let instr = self.fetch_instruction();
+        println!("Fetched instruction: {:#010x}", instr);
     }
 
-    pub fn execute(&mut self) {
-        let instruction = self.instructions.get(self.pc).expect("Invalid pc!");
+    fn fetch_instruction(&mut self) -> u32 {
+        let pc = self.pc;
 
-        match &instruction.opcode {
-            Opcode::LoadImmediate { destination, value } => {
-                self.registers[destination.0 as usize] = value.0
-            }
-            Opcode::Addition => todo!(),
+        assert!(pc + 4 <= self.memory.len(), "Unexpected end of program");
+
+        let bytes = &self.memory[pc..pc + 4];
+        let bytes_instruction = u32::from_le_bytes(bytes.try_into().unwrap());
+
+        if bytes_instruction & MASK_ADDI == MATCH_ADDI {
+            println!("ADDI INST");
         }
+
+        0
     }
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
+mod tests {
+    use super::VM;
 
-    fn get_vm() -> VM {
-        VM::default()
+    #[test]
+    fn test_create_vm() {
+        let mut vm = VM::new(0, vec![0]);
+        vm.run();
     }
 
     #[test]
-    fn opcode_load_immediate() {
-        let mut vm = get_vm();
-        vm.instructions = vec![Instruction {
-            energy_cost: 0,
-            opcode: Opcode::LoadImmediate {
-                destination: Register(1),
-                value: Immediate(10),
-            },
-            debug: None,
-        }];
-
-        vm.execute();
-
-        let mut expected = [0; 32];
-        expected[1] = 10;
-
-        assert_eq!(vm.registers, expected);
+    fn test_adfds() {
+        let mut vm = VM::new(0, vec![0xC, 0x8, 0, 0, 0, 0, 0, 0]);
+        vm.run();
+        panic!("hi");
     }
 }
