@@ -1,7 +1,7 @@
-mod assembler;
-mod inst;
-mod instruction_parser;
-mod vm;
+pub mod assembler;
+pub mod inst;
+pub mod instruction_parser;
+pub mod vm;
 
 #[cfg(test)]
 mod tests {
