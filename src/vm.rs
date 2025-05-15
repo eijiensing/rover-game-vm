@@ -1,10 +1,91 @@
 use crate::inst::{MASK_ADDI, MASK_LB, MATCH_ADDI, MATCH_LB};
 
+enum Opcode {
+    Addi,
+}
+
+enum OperandsFormat {
+    Rtype {
+        rd: usize,
+        rs1_value: i32,
+        rs2_value: i32,
+    },
+    Itype {
+        rd: usize,
+        rs1_value: i32,
+        imm: i32,
+    },
+    Stype {
+        rs1_value: i32,
+        rs2_value: i32,
+        imm: i32,
+    },
+    Btype {
+        rs1_value: i32,
+        rs2_value: i32,
+        imm: i32,
+    },
+    Utype {
+        rd: usize,
+        imm: i32,
+    },
+    Jtype {
+        rd: usize,
+        imm: i32,
+    },
+}
+
+fn extract_itype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
+    let rs1 = ((instruction >> 15) & 0x1f) as usize;
+
+    let rs1_value = registers[rs1];
+
+    OperandsFormat::Itype {
+        rd: ((instruction >> 7) & 0x1f) as usize,
+        rs1_value,
+        imm: (instruction as i32) >> 20,
+    }
+}
+
+enum MemoryRange {
+    Byte,
+    ByteUnsigned,
+    Half,
+    HalfUnsigned,
+    Word,
+}
+
+struct IFID {
+    instruction: u32,
+}
+
+struct IDEX {
+    opcode: Opcode,
+    operands: Option<OperandsFormat>,
+    memory_range: Option<MemoryRange>,
+}
+
+struct EXMEM {
+    rd: usize,
+    calculation_result: i32,
+    memory_range: Option<MemoryRange>,
+}
+
+struct MEMWB {
+    rd: usize,
+    value: i32,
+}
+
 #[derive(Default)]
 pub struct VM {
     memory: Vec<u8>,
     registers: [i32; 32],
     pc: usize,
+    cycle: usize,
+    if_id: Option<IFID>,
+    id_ex: Option<IDEX>,
+    ex_mem: Option<EXMEM>,
+    mem_wb: Option<MEMWB>,
 }
 
 impl VM {
@@ -13,12 +94,68 @@ impl VM {
             pc: 0,
             memory,
             registers: [0; 32],
+            cycle: 0,
+            if_id: None,
+            id_ex: None,
+            ex_mem: None,
+            mem_wb: None,
         }
     }
 
     pub fn run(&mut self) {
         self.handle_next_instruction();
     }
+
+    pub fn step(&mut self) {
+        self.writeback();
+        self.memory();
+        self.execute();
+        self.decode();
+        self.fetch();
+        self.cycle += 1;
+    }
+
+    fn fetch(&mut self) {
+        let pc = self.pc;
+        assert!(pc + 4 <= self.memory.len(), "Unexpected end of program");
+        let bytes = &self.memory[pc..pc + 4];
+        let instruction = u32::from_le_bytes(bytes.try_into().unwrap());
+        self.if_id = Some(IFID { instruction });
+    }
+
+    fn decode(&mut self) {
+        let if_id = match self.if_id.as_ref() {
+            Some(v) => v,
+            None => return,
+        };
+
+        if if_id.instruction & MASK_ADDI == MATCH_ADDI {
+            self.id_ex = Some(IDEX {
+                opcode: Opcode::Addi,
+                operands: Some(extract_itype(if_id.instruction, &self.registers)),
+                memory_range: None,
+            });
+        }
+    }
+
+    fn execute(&mut self) {
+        let id_ex = match self.id_ex.as_ref() {
+            Some(v) => v,
+            None => return,
+        };
+
+        match (&id_ex.opcode, &id_ex.operands) {
+            (Opcode::Addi, Some(OperandsFormat::Itype { rd, rs1_value, imm })) => {
+                self.ex_mem = Some(EXMEM {
+                    rd: *rd,
+                    calculation_result: rs1_value.wrapping_add(*imm),
+                });
+            }
+            _ => panic!("Mismatched opcode and operand format"),
+        }
+    }
+    fn memory(&mut self) {}
+    fn writeback(&mut self) {}
 
     fn handle_next_instruction(&mut self) {
         let pc = self.pc;
