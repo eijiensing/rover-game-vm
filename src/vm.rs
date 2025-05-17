@@ -55,6 +55,11 @@ enum MemoryRange {
     Word,
 }
 
+struct MemoryOperation {
+    is_load: bool,
+    memory_range: MemoryRange,
+}
+
 struct IFID {
     instruction: u32,
 }
@@ -62,13 +67,13 @@ struct IFID {
 struct IDEX {
     opcode: Opcode,
     operands: Option<OperandsFormat>,
-    memory_range: Option<MemoryRange>,
+    memory_operation: Option<MemoryOperation>,
 }
 
 struct EXMEM {
     rd: usize,
     calculation_result: i32,
-    memory_range: Option<MemoryRange>,
+    memory_operation: Option<MemoryOperation>,
 }
 
 struct MEMWB {
@@ -133,7 +138,7 @@ impl VM {
             self.id_ex = Some(IDEX {
                 opcode: Opcode::Addi,
                 operands: Some(extract_itype(if_id.instruction, &self.registers)),
-                memory_range: None,
+                memory_operation: None,
             });
         }
     }
@@ -149,12 +154,64 @@ impl VM {
                 self.ex_mem = Some(EXMEM {
                     rd: *rd,
                     calculation_result: rs1_value.wrapping_add(*imm),
+                    memory_operation: None,
                 });
             }
             _ => panic!("Mismatched opcode and operand format"),
         }
     }
-    fn memory(&mut self) {}
+    fn memory(&mut self) {
+        let ex_mem = match self.ex_mem.as_ref() {
+            Some(v) => v,
+            None => return,
+        };
+
+        let mut value = ex_mem.calculation_result;
+
+        if let Some(mem_op) = ex_mem.memory_operation.as_ref() {
+            if mem_op.is_load {
+                let addr = ex_mem.calculation_result as usize;
+
+                value = match mem_op.memory_range {
+                    MemoryRange::Byte => {
+                        let byte = *self.memory.get(addr).expect("Memory access out of bounds");
+                        (byte as i8) as i32
+                    }
+                    MemoryRange::ByteUnsigned => {
+                        let byte = *self.memory.get(addr).expect("Memory access out of bounds");
+                        byte as i32
+                    }
+                    MemoryRange::Half => {
+                        let bytes = self
+                            .memory
+                            .get(addr..addr + 2)
+                            .expect("Memory access out of bounds");
+                        let half = u16::from_le_bytes(bytes.try_into().unwrap());
+                        (half as i16) as i32
+                    }
+                    MemoryRange::HalfUnsigned => {
+                        let bytes = self
+                            .memory
+                            .get(addr..addr + 2)
+                            .expect("Memory access out of bounds");
+                        u16::from_le_bytes(bytes.try_into().unwrap()) as i32
+                    }
+                    MemoryRange::Word => {
+                        let bytes = self
+                            .memory
+                            .get(addr..addr + 4)
+                            .expect("Memory access out of bounds");
+                        i32::from_le_bytes(bytes.try_into().unwrap())
+                    }
+                };
+            }
+        }
+
+        self.mem_wb = Some(MEMWB {
+            rd: ex_mem.rd,
+            value,
+        })
+    }
     fn writeback(&mut self) {}
 
     fn handle_next_instruction(&mut self) {
