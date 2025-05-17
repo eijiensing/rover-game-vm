@@ -71,8 +71,8 @@ struct IDEX {
 }
 
 struct EXMEM {
-    rd: usize,
     calculation_result: i32,
+    operands: Option<OperandsFormat>,
     memory_operation: Option<MemoryOperation>,
 }
 
