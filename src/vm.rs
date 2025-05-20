@@ -1,38 +1,19 @@
-use crate::inst::{MASK_ADDI, MASK_LB, MATCH_ADDI, MATCH_LB};
+use crate::inst::{MASK_ADDI, MASK_LB, MASK_SB, MATCH_ADDI, MATCH_LB, MATCH_SB};
 
 enum Opcode {
     Addi,
+    Lb,
+    Sb,
 }
 
+#[derive(Clone)]
 enum OperandsFormat {
-    Rtype {
-        rd: usize,
-        rs1_value: i32,
-        rs2_value: i32,
-    },
-    Itype {
-        rd: usize,
-        rs1_value: i32,
-        imm: i32,
-    },
-    Stype {
-        rs1_value: i32,
-        rs2_value: i32,
-        imm: i32,
-    },
-    Btype {
-        rs1_value: i32,
-        rs2_value: i32,
-        imm: i32,
-    },
-    Utype {
-        rd: usize,
-        imm: i32,
-    },
-    Jtype {
-        rd: usize,
-        imm: i32,
-    },
+    Rtype { rd: usize, r1_val: i32, r2_val: i32 },
+    Itype { rd: usize, r1_val: i32, imm: i32 },
+    Stype { r1_val: i32, r2_val: i32, imm: i32 },
+    Btype { r1_val: i32, r2_val: i32, imm: i32 },
+    Utype { rd: usize, imm: i32 },
+    Jtype { rd: usize, imm: i32 },
 }
 
 fn extract_itype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
@@ -42,11 +23,34 @@ fn extract_itype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
 
     OperandsFormat::Itype {
         rd: ((instruction >> 7) & 0x1f) as usize,
-        rs1_value,
+        r1_val: rs1_value,
         imm: (instruction as i32) >> 20,
     }
 }
 
+fn extract_stype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
+    let rs1 = ((instruction >> 15) & 0x1f) as usize;
+    let rs2 = ((instruction >> 20) & 0x1f) as usize;
+
+    let rs1_value = registers[rs1];
+    let rs2_value = registers[rs2];
+
+    // S-type immediate is split between bits [31:25] and [11:7]
+    let imm_11_5 = ((instruction >> 25) & 0x7f) as i32;
+    let imm_4_0 = ((instruction >> 7) & 0x1f) as i32;
+    let imm = (imm_11_5 << 5) | imm_4_0;
+
+    // Sign-extend
+    let imm = (imm << 20) >> 20;
+
+    OperandsFormat::Stype {
+        r1_val: rs1_value,
+        r2_val: rs2_value,
+        imm,
+    }
+}
+
+#[derive(Clone)]
 enum MemoryRange {
     Byte,
     ByteUnsigned,
@@ -55,6 +59,7 @@ enum MemoryRange {
     Word,
 }
 
+#[derive(Clone)]
 struct MemoryOperation {
     is_load: bool,
     memory_range: MemoryRange,
@@ -71,6 +76,7 @@ struct IDEX {
 }
 
 struct EXMEM {
+    rd: Option<usize>,
     calculation_result: i32,
     operands: Option<OperandsFormat>,
     memory_operation: Option<MemoryOperation>,
@@ -107,8 +113,13 @@ impl VM {
         }
     }
 
-    pub fn run(&mut self) {
-        self.handle_next_instruction();
+    pub fn step_no_pipeline(&mut self) {
+        self.fetch();
+        self.decode();
+        self.execute();
+        self.memory();
+        self.writeback();
+        self.cycle += 5;
     }
 
     pub fn step(&mut self) {
@@ -140,6 +151,24 @@ impl VM {
                 operands: Some(extract_itype(if_id.instruction, &self.registers)),
                 memory_operation: None,
             });
+        } else if if_id.instruction & MASK_LB == MATCH_LB {
+            self.id_ex = Some(IDEX {
+                opcode: Opcode::Lb,
+                operands: Some(extract_itype(if_id.instruction, &self.registers)),
+                memory_operation: Some(MemoryOperation {
+                    is_load: true,
+                    memory_range: MemoryRange::Byte,
+                }),
+            })
+        } else if if_id.instruction & MASK_SB == MATCH_SB {
+            self.id_ex = Some(IDEX {
+                opcode: Opcode::Sb,
+                operands: Some(extract_stype(if_id.instruction, &self.registers)),
+                memory_operation: Some(MemoryOperation {
+                    is_load: false,
+                    memory_range: MemoryRange::Byte,
+                }),
+            })
         }
     }
 
@@ -150,16 +179,55 @@ impl VM {
         };
 
         match (&id_ex.opcode, &id_ex.operands) {
-            (Opcode::Addi, Some(OperandsFormat::Itype { rd, rs1_value, imm })) => {
+            (
+                Opcode::Addi,
+                Some(OperandsFormat::Itype {
+                    rd,
+                    r1_val: rs1_value,
+                    imm,
+                }),
+            ) => {
                 self.ex_mem = Some(EXMEM {
-                    rd: *rd,
+                    rd: Some(*rd),
                     calculation_result: rs1_value.wrapping_add(*imm),
                     memory_operation: None,
+                    operands: id_ex.operands.clone(),
+                });
+            }
+            (
+                Opcode::Lb,
+                Some(OperandsFormat::Itype {
+                    rd,
+                    r1_val: rs1_value,
+                    imm,
+                }),
+            ) => {
+                self.ex_mem = Some(EXMEM {
+                    rd: Some(*rd),
+                    calculation_result: rs1_value.wrapping_add(*imm),
+                    memory_operation: id_ex.memory_operation.clone(),
+                    operands: id_ex.operands.clone(),
+                });
+            }
+            (
+                Opcode::Sb,
+                Some(OperandsFormat::Stype {
+                    r1_val,
+                    r2_val: _,
+                    imm,
+                }),
+            ) => {
+                self.ex_mem = Some(EXMEM {
+                    rd: None,
+                    calculation_result: r1_val.wrapping_add(*imm),
+                    memory_operation: id_ex.memory_operation.clone(),
+                    operands: id_ex.operands.clone(),
                 });
             }
             _ => panic!("Mismatched opcode and operand format"),
         }
     }
+
     fn memory(&mut self) {
         let ex_mem = match self.ex_mem.as_ref() {
             Some(v) => v,
@@ -169,9 +237,8 @@ impl VM {
         let mut value = ex_mem.calculation_result;
 
         if let Some(mem_op) = ex_mem.memory_operation.as_ref() {
-            if mem_op.is_load {
-                let addr = ex_mem.calculation_result as usize;
-
+            let addr = ex_mem.calculation_result as usize;
+            if mem_op.is_load && ex_mem.rd.is_some() {
                 value = match mem_op.memory_range {
                     MemoryRange::Byte => {
                         let byte = *self.memory.get(addr).expect("Memory access out of bounds");
@@ -204,51 +271,35 @@ impl VM {
                         i32::from_le_bytes(bytes.try_into().unwrap())
                     }
                 };
+            } else if let Some(OperandsFormat::Stype {
+                r1_val: _,
+                r2_val,
+                imm: _,
+            }) = ex_mem.operands
+            {
+                match mem_op.memory_range {
+                    MemoryRange::Byte => self.memory[addr] = r2_val as u8,
+                    MemoryRange::ByteUnsigned => self.memory[addr] = r2_val as u8,
+                    MemoryRange::Half => {
+                        self.memory[addr] = r2_val as u8;
+                    }
+                    MemoryRange::HalfUnsigned => self.memory[addr] = r2_val as u8,
+                    MemoryRange::Word => self.memory[addr] = r2_val as u8,
+                };
             }
         }
 
-        self.mem_wb = Some(MEMWB {
-            rd: ex_mem.rd,
-            value,
-        })
-    }
-    fn writeback(&mut self) {}
-
-    fn handle_next_instruction(&mut self) {
-        let pc = self.pc;
-
-        assert!(pc + 4 <= self.memory.len(), "Unexpected end of program");
-
-        let bytes = &self.memory[pc..pc + 4];
-        let inst = u32::from_le_bytes(bytes.try_into().unwrap());
-
-        if inst & MASK_ADDI == MATCH_ADDI {
-            self.handle_i_instruction(inst, |_, rs1_val, imm| rs1_val.wrapping_add(imm));
-        } else if inst & MASK_LB == MATCH_LB {
-            self.handle_i_instruction(inst, |mem, rs1_val, imm| {
-                let addr = rs1_val.wrapping_add(imm) as usize;
-                let byte = *mem.get(addr).expect("Memory access out of bounds");
-                (byte as i8) as i32
-            });
+        if let Some(rd) = ex_mem.rd {
+            self.mem_wb = Some(MEMWB { rd, value })
         }
-
-        self.pc += 4;
     }
+    fn writeback(&mut self) {
+        let mem_wb = match self.mem_wb.as_ref() {
+            Some(v) => v,
+            None => return,
+        };
 
-    fn handle_i_instruction<F>(&mut self, instruction: u32, operation: F)
-    where
-        F: FnOnce(&mut Vec<u8>, i32, i32) -> i32,
-    {
-        let rd = ((instruction >> 7) & 0x1f) as usize;
-        let rs1 = ((instruction >> 15) & 0x1f) as usize;
-        let imm = (instruction as i32) >> 20;
-
-        let rs1_val = self.registers[rs1];
-        let result = operation(&mut self.memory, rs1_val, imm);
-
-        if rd != 0 {
-            self.registers[rd] = result;
-        }
+        self.registers[mem_wb.rd] = mem_wb.value;
     }
 }
 
@@ -261,7 +312,7 @@ mod tests {
         // ADDI x1, x0, 5
         // 000000000101 00000 000 00001 0010011
         let mut vm = VM::new(vec![0x93, 0x00, 0x50, 0x00]);
-        vm.run();
+        vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 5);
     }
 
@@ -270,7 +321,7 @@ mod tests {
         // LB x1, 4(x0)
         // 000000000100 00000 000 00001 0000011
         let mut vm = VM::new(vec![0x83, 0x00, 0x40, 0x00, 0x05]);
-        vm.run();
+        vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 0x05);
     }
 }
