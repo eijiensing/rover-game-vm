@@ -229,68 +229,57 @@ impl VM {
     }
 
     fn memory(&mut self) {
-        let ex_mem = match self.ex_mem.as_ref() {
-            Some(v) => v,
-            None => return,
+        let Some(ex_mem) = self.ex_mem.take() else {
+            return;
         };
 
+        let addr = ex_mem.calculation_result as usize;
         let mut value = ex_mem.calculation_result;
 
-        if let Some(mem_op) = ex_mem.memory_operation.as_ref() {
-            let addr = ex_mem.calculation_result as usize;
-            if mem_op.is_load && ex_mem.rd.is_some() {
-                value = match mem_op.memory_range {
-                    MemoryRange::Byte => {
-                        let byte = *self.memory.get(addr).expect("Memory access out of bounds");
-                        (byte as i8) as i32
-                    }
-                    MemoryRange::ByteUnsigned => {
-                        let byte = *self.memory.get(addr).expect("Memory access out of bounds");
-                        byte as i32
-                    }
-                    MemoryRange::Half => {
-                        let bytes = self
-                            .memory
-                            .get(addr..addr + 2)
-                            .expect("Memory access out of bounds");
-                        let half = u16::from_le_bytes(bytes.try_into().unwrap());
-                        (half as i16) as i32
-                    }
-                    MemoryRange::HalfUnsigned => {
-                        let bytes = self
-                            .memory
-                            .get(addr..addr + 2)
-                            .expect("Memory access out of bounds");
-                        u16::from_le_bytes(bytes.try_into().unwrap()) as i32
-                    }
-                    MemoryRange::Word => {
-                        let bytes = self
-                            .memory
-                            .get(addr..addr + 4)
-                            .expect("Memory access out of bounds");
-                        i32::from_le_bytes(bytes.try_into().unwrap())
-                    }
-                };
-            } else if let Some(OperandsFormat::Stype {
-                r1_val: _,
-                r2_val,
-                imm: _,
-            }) = ex_mem.operands
-            {
-                match mem_op.memory_range {
-                    MemoryRange::Byte => self.memory[addr] = r2_val as u8,
-                    MemoryRange::ByteUnsigned => self.memory[addr] = r2_val as u8,
-                    MemoryRange::Half => {
-                        self.memory[addr] = r2_val as u8;
-                    }
-                    MemoryRange::HalfUnsigned => self.memory[addr] = r2_val as u8,
-                    MemoryRange::Word => self.memory[addr] = r2_val as u8,
-                };
+        if let Some(mem_op) = &ex_mem.memory_operation {
+            if mem_op.is_load {
+                value = self.load_memory(mem_op.memory_range.clone(), addr);
+            } else if let Some(OperandsFormat::Stype { r2_val, .. }) = &ex_mem.operands {
+                self.store_memory(mem_op.memory_range.clone(), addr, *r2_val);
             }
         }
 
         if let Some(rd) = ex_mem.rd {
-            self.mem_wb = Some(MEMWB { rd, value })
+            self.mem_wb = Some(MEMWB { rd, value });
+        }
+    }
+
+    fn load_memory(&self, kind: MemoryRange, addr: usize) -> i32 {
+        match kind {
+            MemoryRange::Byte => self.memory.get(addr).map_or(0, |&b| b as i8 as i32),
+            MemoryRange::ByteUnsigned => self.memory.get(addr).map_or(0, |&b| b as i32),
+            MemoryRange::Half => self.memory.get(addr..addr + 2).map_or(0, |bytes| {
+                let half = u16::from_le_bytes(bytes.try_into().unwrap());
+                half as i16 as i32
+            }),
+            MemoryRange::HalfUnsigned => self.memory.get(addr..addr + 2).map_or(0, |bytes| {
+                u16::from_le_bytes(bytes.try_into().unwrap()) as i32
+            }),
+            MemoryRange::Word => self
+                .memory
+                .get(addr..addr + 4)
+                .map_or(0, |bytes| i32::from_le_bytes(bytes.try_into().unwrap())),
+        }
+    }
+
+    fn store_memory(&mut self, kind: MemoryRange, addr: usize, value: i32) {
+        match kind {
+            MemoryRange::Byte | MemoryRange::ByteUnsigned => {
+                self.memory[addr] = value as u8;
+            }
+            MemoryRange::Half | MemoryRange::HalfUnsigned => {
+                let bytes = (value as u16).to_le_bytes();
+                self.memory[addr..addr + 2].copy_from_slice(&bytes);
+            }
+            MemoryRange::Word => {
+                let bytes = value.to_le_bytes();
+                self.memory[addr..addr + 4].copy_from_slice(&bytes);
+            }
         }
     }
     fn writeback(&mut self) {
@@ -323,5 +312,15 @@ mod tests {
         let mut vm = VM::new(vec![0x83, 0x00, 0x40, 0x00, 0x05]);
         vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 0x05);
+    }
+
+    #[test]
+    fn test_sb() {
+        // SB x0, 4(x0)
+        // 00000000 0000 00000 000 00100 0100011
+        // 00000000 00000000 00000010 00100011
+        let mut vm = VM::new(vec![0x23, 0x02, 0x00, 0x00, 0x05]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.memory[4], 0x00);
     }
 }
