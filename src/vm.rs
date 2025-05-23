@@ -1,9 +1,12 @@
-use crate::inst::{MASK_ADDI, MASK_LB, MASK_SB, MATCH_ADDI, MATCH_LB, MATCH_SB};
+use crate::inst::{
+    MASK_ADDI, MASK_JAL, MASK_LB, MASK_SB, MATCH_ADDI, MATCH_JAL, MATCH_LB, MATCH_SB,
+};
 
 enum Opcode {
     Addi,
     Lb,
     Sb,
+    Jal,
 }
 
 #[derive(Clone)]
@@ -46,6 +49,23 @@ fn extract_stype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
     OperandsFormat::Stype {
         r1_val: rs1_value,
         r2_val: rs2_value,
+        imm,
+    }
+}
+
+fn extract_jtype(instruction: u32) -> OperandsFormat {
+    let imm20 = ((instruction >> 31) & 0x1) << 20;
+    let imm10_1 = ((instruction >> 21) & 0x3ff) << 1;
+    let imm11 = ((instruction >> 20) & 0x1) << 11;
+    let imm19_12 = ((instruction >> 12) & 0xff) << 12;
+
+    let raw_imm = imm20 | imm19_12 | imm11 | imm10_1;
+
+    // Sign-extend from bit 20
+    let imm = ((raw_imm as i32) << 11) >> 11;
+
+    OperandsFormat::Jtype {
+        rd: ((instruction >> 7) & 0x1f) as usize,
         imm,
     }
 }
@@ -137,6 +157,9 @@ impl VM {
         let bytes = &self.memory[pc..pc + 4];
         let instruction = u32::from_le_bytes(bytes.try_into().unwrap());
         self.if_id = Some(IFID { instruction });
+        // eagerly update the pc, this can be overwritten in the execute stage if the instruction
+        // is a branch/ jump
+        self.pc += 4;
     }
 
     fn decode(&mut self) {
@@ -168,6 +191,12 @@ impl VM {
                     is_load: false,
                     memory_range: MemoryRange::Byte,
                 }),
+            })
+        } else if if_id.instruction & MASK_JAL == MATCH_JAL {
+            self.id_ex = Some(IDEX {
+                opcode: Opcode::Jal,
+                operands: Some(extract_jtype(if_id.instruction)),
+                memory_operation: None,
             })
         }
     }
@@ -223,6 +252,17 @@ impl VM {
                     memory_operation: id_ex.memory_operation.clone(),
                     operands: id_ex.operands.clone(),
                 });
+            }
+            (Opcode::Jal, Some(OperandsFormat::Jtype { rd, imm })) => {
+                let old_pc = self.pc - 4;
+                self.pc = old_pc.wrapping_add(*imm as usize);
+                self.ex_mem = Some(EXMEM {
+                    rd: Some(*rd),
+                    calculation_result: old_pc.wrapping_add(4) as i32,
+                    memory_operation: None,
+                    operands: id_ex.operands.clone(),
+                });
+                println!("imm {:?}", imm);
             }
             _ => panic!("Mismatched opcode and operand format"),
         }
@@ -318,9 +358,31 @@ mod tests {
     fn test_sb() {
         // SB x0, 4(x0)
         // 00000000 0000 00000 000 00100 0100011
-        // 00000000 00000000 00000010 00100011
         let mut vm = VM::new(vec![0x23, 0x02, 0x00, 0x00, 0x05]);
         vm.step_no_pipeline();
         assert_eq!(vm.memory[4], 0x00);
+    }
+
+    #[test]
+    fn test_jal() {
+        // JAL x1, 8
+        //  00001 1101111
+        //
+        // ADDI x2, x0, 42
+        // ADDI x3, x0, 99
+
+        let program = vec![
+            0xef, 0x00, 0x00, 0x00, // JAL x1, 8
+            0x2a, 0x01, 0x00, 0x13, // ADDI x2, x0, 42 (should be skipped)
+            0x13, 0x01, 0x63, 0x00, // ADDI x3, x0, 99
+        ];
+
+        let mut vm = VM::new(program);
+        vm.step_no_pipeline(); // JAL
+        vm.step_no_pipeline(); // ADDI x3
+
+        assert_eq!(vm.registers[1], 4); // x1 = return address (pc + 4 before jump)
+        assert_eq!(vm.registers[2], 0); // x2 not set (skipped)
+        assert_eq!(vm.registers[3], 99); // x3 set by ADDI
     }
 }
