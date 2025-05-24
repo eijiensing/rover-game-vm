@@ -61,8 +61,8 @@ fn extract_jtype(instruction: u32) -> OperandsFormat {
 
     let raw_imm = imm20 | imm19_12 | imm11 | imm10_1;
 
-    // Sign-extend from bit 20
-    let imm = ((raw_imm as i32) << 11) >> 11;
+    // raw_imm already contains bits [20:1]; bit-0 is implicitly zero
+    let imm = ((raw_imm << 1) as i32) >> 1;
 
     OperandsFormat::Jtype {
         rd: ((instruction >> 7) & 0x1f) as usize,
@@ -262,7 +262,6 @@ impl VM {
                     memory_operation: None,
                     operands: id_ex.operands.clone(),
                 });
-                println!("imm {:?}", imm);
             }
             _ => panic!("Mismatched opcode and operand format"),
         }
@@ -334,7 +333,18 @@ impl VM {
 
 #[cfg(test)]
 mod tests {
-    use super::VM;
+    use crate::vm::OperandsFormat;
+
+    use super::{VM, extract_jtype};
+
+    #[test]
+    fn test_extract_jtype() {
+        // JAL x1, 8
+        // 0 0000000100 0 00000000 00001 1101111
+        let instruction = 0b00000000100000000000000011101111;
+        let result = extract_jtype(instruction);
+        assert!(matches!(result, OperandsFormat::Jtype { rd: 1, imm: 8 }));
+    }
 
     #[test]
     fn test_addi() {
@@ -366,15 +376,16 @@ mod tests {
     #[test]
     fn test_jal() {
         // JAL x1, 8
-        //  00001 1101111
-        //
+        // 00000000 10000000 00000000 11101111
         // ADDI x2, x0, 42
+        // 00000010 10100000 00000001 00010011
         // ADDI x3, x0, 99
+        // 00000110 00110000 00000001 10010011
 
         let program = vec![
-            0xef, 0x00, 0x00, 0x00, // JAL x1, 8
-            0x2a, 0x01, 0x00, 0x13, // ADDI x2, x0, 42 (should be skipped)
-            0x13, 0x01, 0x63, 0x00, // ADDI x3, x0, 99
+            0xef, 0x00, 0x80, 0x00, // JAL x1, 8
+            0x13, 0x01, 0xa0, 0x02, // ADDI x2, x0, 42 (should be skipped)
+            0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
         let mut vm = VM::new(program);
