@@ -1,8 +1,9 @@
 use crate::inst::{
-    MASK_ADDI, MASK_JAL, MASK_LB, MASK_SB, MATCH_ADDI, MATCH_JAL, MATCH_LB, MATCH_SB,
+    MASK_ADD, MASK_ADDI, MASK_JAL, MASK_LB, MASK_SB, MATCH_ADD, MATCH_ADDI, MATCH_JAL, MATCH_LB, MATCH_SB
 };
 
 enum Opcode {
+    Add,
     Addi,
     Lb,
     Sb,
@@ -17,6 +18,21 @@ enum OperandsFormat {
     Btype { r1_val: i32, r2_val: i32, imm: i32 },
     Utype { rd: usize, imm: i32 },
     Jtype { rd: usize, imm: i32 },
+}
+
+
+fn extract_rtype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
+    let rs1 = ((instruction >> 15) & 0x1f) as usize;
+    let rs2 = ((instruction >> 20) & 0x1f) as usize;
+
+    let rs1_value = registers[rs1];
+    let rs2_value = registers[rs2];
+
+    OperandsFormat::Rtype {
+        rd: ((instruction >> 7) & 0x1f) as usize,
+        r1_val: rs1_value,
+        r2_val: rs2_value,
+    }
 }
 
 fn extract_itype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
@@ -198,6 +214,12 @@ impl VM {
                 operands: Some(extract_jtype(if_id.instruction)),
                 memory_operation: None,
             })
+        } else if if_id.instruction & MASK_ADD == MATCH_ADD {
+            self.id_ex = Some(IDEX {
+                opcode: Opcode::Add,
+                operands: Some(extract_rtype(if_id.instruction, &self.registers)),
+                memory_operation: None,
+            })
         }
     }
 
@@ -260,6 +282,21 @@ impl VM {
                     rd: Some(*rd),
                     calculation_result: old_pc.wrapping_add(4) as i32,
                     memory_operation: None,
+                    operands: id_ex.operands.clone(),
+                });
+            }
+            (
+                Opcode::Add,
+                Some(OperandsFormat::Rtype {
+                    rd,
+                    r1_val,
+                    r2_val,
+                }),
+            ) => {
+                self.ex_mem = Some(EXMEM {
+                    rd: Some(*rd),
+                    calculation_result: r1_val.wrapping_add(*r2_val),
+                    memory_operation: id_ex.memory_operation.clone(),
                     operands: id_ex.operands.clone(),
                 });
             }
@@ -395,5 +432,15 @@ mod tests {
         assert_eq!(vm.registers[1], 4); // x1 = return address (pc + 4 before jump)
         assert_eq!(vm.registers[2], 0); // x2 not set (skipped)
         assert_eq!(vm.registers[3], 99); // x3 set by ADDI
+    }
+
+    #[test]
+    fn test_add() {
+        // ADD x0, x1, x2
+        let mut vm = VM::new(vec![0x33, 0x80, 0x20, 0x00]);
+        vm.registers[1] = 1;
+        vm.registers[2] = 2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[0], 3);
     }
 }
