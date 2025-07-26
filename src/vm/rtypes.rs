@@ -1,4 +1,4 @@
-use crate::inst::{MASK_ADD, MASK_ADDI, MATCH_ADD, MATCH_ADDI};
+use crate::inst::{MASK_ADD, MATCH_ADD};
 
 use super::common::{InstructionDefinition, Opcode, OperandsFormat, EXMEM, IDEX};
 

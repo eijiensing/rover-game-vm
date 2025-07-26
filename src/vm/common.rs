@@ -5,6 +5,8 @@ pub enum Opcode {
     Lb,
     Sb,
     Jal,
+    Lui,
+    Beq
 }
 
 #[derive(Clone)]

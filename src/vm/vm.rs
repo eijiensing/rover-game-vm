@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{common::{InstructionDefinition, MemoryRange, Opcode, OperandsFormat, EXMEM, IDEX, IFID, MEMWB}, itypes::ITYPE_LIST, jtypes::JTYPE_LIST, rtypes::RTYPE_LIST, stypes::STYPE_LIST};
+use super::{btypes::BTYPE_LIST, common::{InstructionDefinition, MemoryRange, Opcode, OperandsFormat, EXMEM, IDEX, IFID, MEMWB}, itypes::ITYPE_LIST, jtypes::JTYPE_LIST, rtypes::RTYPE_LIST, stypes::STYPE_LIST, utypes::UTYPE_LIST};
 
 #[derive(Default)]
 pub struct VM {
@@ -22,6 +22,8 @@ impl VM {
             &RTYPE_LIST[..],
             &ITYPE_LIST[..],
             &STYPE_LIST[..],
+            &BTYPE_LIST[..],
+            &UTYPE_LIST[..],
             &JTYPE_LIST[..],
         ].concat();
 
@@ -233,5 +235,52 @@ mod tests {
         vm.registers[2] = 2;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[0], 3);
+    }
+
+    #[test]
+    fn test_lui() {
+        // LUI x1, 1
+        let mut vm = VM::new(vec![0xb7, 0x10, 0x00, 0x00]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[1], 4096);
+    }
+
+
+    #[test]
+    fn test_beq() {
+        // BEQ x0, x0, 8
+        // ADDI x2, x0, 42
+        // ADDI x3, x0, 99
+
+        let program = vec![
+            0x63, 0x04, 0x00, 0x00, // BEQ x0, x0, 8 
+            0x13, 0x01, 0xa0, 0x02, // ADDI x2, x0, 42 (should be skipped)
+            0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
+        ];
+
+        let mut vm = VM::new(program);
+        vm.step_no_pipeline(); // BEQ
+        vm.step_no_pipeline(); // ADDI x3
+
+        assert_eq!(vm.registers[2], 0); // x2 not set (skipped)
+        assert_eq!(vm.registers[3], 99); // x3 set by ADDI
+
+        // BEQ x0, x1, 8
+        // ADDI x2, x0, 42
+        // ADDI x3, x0, 99
+        let program = vec![
+            0x63, 0x04, 0x10, 0x00, // BEQ x0, x1, 8 
+            0x13, 0x01, 0xa0, 0x02, // ADDI x2, x0, 42 (should NOT be skipped)
+            0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
+        ];
+
+        let mut vm = VM::new(program);
+        vm.registers[1] = 1;
+        vm.step_no_pipeline(); // BEQ
+        vm.step_no_pipeline(); // ADDI x3
+        vm.step_no_pipeline(); // ADDI x3
+
+        assert_eq!(vm.registers[2], 42); // x2 set by ADDI
+        assert_eq!(vm.registers[3], 99); // x3 set by ADDI
     }
 }
