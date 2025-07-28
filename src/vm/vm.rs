@@ -1,6 +1,16 @@
 use std::collections::HashMap;
 
-use super::{btypes::BTYPE_LIST, common::{InstructionDefinition, MemoryRange, Opcode, OperandsFormat, EXMEM, IDEX, IFID, MEMWB}, itypes::ITYPE_LIST, jtypes::JTYPE_LIST, rtypes::RTYPE_LIST, stypes::STYPE_LIST, utypes::UTYPE_LIST};
+use super::{
+    btypes::BTYPE_LIST,
+    common::{
+        EXMEM, IDEX, IFID, InstructionDefinition, MEMWB, MemoryRange, Opcode, OperandsFormat,
+    },
+    itypes::ITYPE_LIST,
+    jtypes::JTYPE_LIST,
+    rtypes::RTYPE_LIST,
+    stypes::STYPE_LIST,
+    utypes::UTYPE_LIST,
+};
 
 #[derive(Default)]
 pub struct VM {
@@ -25,7 +35,8 @@ impl VM {
             &BTYPE_LIST[..],
             &UTYPE_LIST[..],
             &JTYPE_LIST[..],
-        ].concat();
+        ]
+        .concat();
 
         let mut execution_table = HashMap::new();
 
@@ -43,7 +54,7 @@ impl VM {
             ex_mem: None,
             mem_wb: None,
             instruction_definitions,
-            execution_table
+            execution_table,
         }
     }
 
@@ -77,7 +88,9 @@ impl VM {
     }
 
     fn decode(&mut self) {
-        let Some(if_id) = self.if_id.as_ref() else { return };
+        let Some(if_id) = self.if_id.as_ref() else {
+            return;
+        };
 
         for def in &self.instruction_definitions {
             if if_id.instruction & def.mask == def.match_val {
@@ -96,7 +109,6 @@ impl VM {
         if let Some(execute_function) = self.execution_table.get(&id_ex.opcode) {
             self.ex_mem = Some(execute_function(id_ex, &mut self.pc));
         }
-
     }
 
     fn memory(&mut self) {
@@ -115,7 +127,7 @@ impl VM {
             }
         }
 
-       if let Some(rd) = ex_mem.rd {
+        if let Some(rd) = ex_mem.rd {
             self.mem_wb = Some(MEMWB { rd, value });
         }
     }
@@ -161,11 +173,35 @@ impl VM {
 
         self.registers[mem_wb.rd] = mem_wb.value;
     }
+
+    fn detect_data_hazard(&self) -> bool {
+        if let Some(id_ex) = &self.id_ex {
+            return match &id_ex.operands {
+                &Some(OperandsFormat::Itype { r1_val: _, rd, .. }) => {
+                    if let Some(ex_mem) = &self.ex_mem {
+                        if let Some(ex_rd) = ex_mem.rd {
+                            if rd == ex_rd {
+                                return true;
+                            }
+                        }
+                    }
+                    if let Some(mem_wb) = &self.mem_wb {
+                        return rd == mem_wb.rd;
+                    } else {
+                        return false;
+                    }
+                }
+                None => false,
+                Some(_) => todo!(),
+            };
+        }
+        false
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{VM};
+    use super::VM;
 
     // #[test]
     // fn test_extract_jtype() {
@@ -245,7 +281,6 @@ mod tests {
         assert_eq!(vm.registers[1], 4096);
     }
 
-
     #[test]
     fn test_beq() {
         // BEQ x0, x0, 8
@@ -253,7 +288,7 @@ mod tests {
         // ADDI x3, x0, 99
 
         let program = vec![
-            0x63, 0x04, 0x00, 0x00, // BEQ x0, x0, 8 
+            0x63, 0x04, 0x00, 0x00, // BEQ x0, x0, 8
             0x13, 0x01, 0xa0, 0x02, // ADDI x2, x0, 42 (should be skipped)
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
@@ -269,7 +304,7 @@ mod tests {
         // ADDI x2, x0, 42
         // ADDI x3, x0, 99
         let program = vec![
-            0x63, 0x04, 0x10, 0x00, // BEQ x0, x1, 8 
+            0x63, 0x04, 0x10, 0x00, // BEQ x0, x1, 8
             0x13, 0x01, 0xa0, 0x02, // ADDI x2, x0, 42 (should NOT be skipped)
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
