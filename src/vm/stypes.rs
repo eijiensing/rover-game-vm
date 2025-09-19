@@ -3,11 +3,11 @@ use crate::inst::{MASK_SB, MATCH_SB};
 use super::common::{InstructionDefinition, MemoryOperation, MemoryRange, Opcode, OperandsFormat, EXMEM, IDEX};
 
 fn extract_stype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
-    let rs1 = ((instruction >> 15) & 0x1f) as usize;
-    let rs2 = ((instruction >> 20) & 0x1f) as usize;
+    let r1 = ((instruction >> 15) & 0x1f) as usize;
+    let r2 = ((instruction >> 20) & 0x1f) as usize;
 
-    let rs1_value = registers[rs1];
-    let rs2_value = registers[rs2];
+    let rs1_value = registers[r1];
+    let rs2_value = registers[r2];
 
     // S-type immediate is split between bits [31:25] and [11:7]
     let imm_11_5 = ((instruction >> 25) & 0x7f) as i32;
@@ -21,6 +21,8 @@ fn extract_stype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
         r1_val: rs1_value,
         r2_val: rs2_value,
         imm,
+        r1,
+        r2
     }
 }
 
@@ -39,7 +41,7 @@ pub const STYPE_LIST: [InstructionDefinition; 1] = [
             }
         },
         execute: |id_ex, _| {
-            if let Some(OperandsFormat::Stype { r1_val, imm, r2_val: _ }) = &id_ex.operands {
+            if let Some(OperandsFormat::Stype { r1_val, imm, r2_val: _, r1: _, r2: _ }) = &id_ex.operands {
                 EXMEM {
                     rd: None,
                     calculation_result: r1_val.wrapping_add(*imm),

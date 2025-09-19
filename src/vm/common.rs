@@ -1,4 +1,4 @@
-#[derive(Clone, PartialEq, PartialOrd, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Hash)]
 pub enum Opcode {
     Add,
     Addi,
@@ -11,14 +11,13 @@ pub enum Opcode {
 
 #[derive(Clone)]
 pub enum OperandsFormat {
-    Rtype { rd: usize, r1_val: i32, r2_val: i32 },
-    Itype { rd: usize, r1_val: i32, imm: i32 },
-    Stype { r1_val: i32, r2_val: i32, imm: i32 },
-    Btype { r1_val: i32, r2_val: i32, imm: i32 },
+    Rtype { rd: usize, r1: usize, r2: usize, r1_val: i32, r2_val: i32 },
+    Itype { rd: usize, r1: usize, r1_val: i32, imm: i32 },
+    Stype { r1: usize, r2: usize, r1_val: i32, r2_val: i32, imm: i32 },
+    Btype { r1: usize, r2: usize, r1_val: i32, r2_val: i32, imm: i32 },
     Utype { rd: usize, imm: i32 },
     Jtype { rd: usize, imm: i32 },
 }
-
 
 #[derive(Clone)]
 pub struct InstructionDefinition {

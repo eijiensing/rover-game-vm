@@ -3,16 +3,18 @@ use crate::inst::{MASK_ADD, MATCH_ADD};
 use super::common::{InstructionDefinition, Opcode, OperandsFormat, EXMEM, IDEX};
 
 fn extract_rtype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
-    let rs1 = ((instruction >> 15) & 0x1f) as usize;
-    let rs2 = ((instruction >> 20) & 0x1f) as usize;
+    let r1 = ((instruction >> 15) & 0x1f) as usize;
+    let r2 = ((instruction >> 20) & 0x1f) as usize;
 
-    let rs1_value = registers[rs1];
-    let rs2_value = registers[rs2];
+    let rs1_value = registers[r1];
+    let rs2_value = registers[r2];
 
     OperandsFormat::Rtype {
         rd: ((instruction >> 7) & 0x1f) as usize,
         r1_val: rs1_value,
         r2_val: rs2_value,
+        r1,
+        r2
     }
 }
 
@@ -29,7 +31,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 1] = [
             }
         },
         execute: |id_ex, _| {
-            if let Some(OperandsFormat::Rtype { rd, r1_val, r2_val }) = &id_ex.operands {
+            if let Some(OperandsFormat::Rtype { rd, r1_val, r2_val, r1: _, r2: _ }) = &id_ex.operands {
                 EXMEM {
                     rd: Some(*rd),
                     calculation_result: r1_val.wrapping_add(*r2_val),
