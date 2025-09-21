@@ -9,7 +9,7 @@ pub enum Opcode {
     Beq
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum OperandsFormat {
     Rtype { rd: usize, r1: usize, r2: usize, r1_val: i32, r2_val: i32 },
     Itype { rd: usize, r1: usize, r1_val: i32, imm: i32 },
@@ -28,7 +28,7 @@ pub struct InstructionDefinition {
     pub execute: fn(&IDEX, &mut usize) -> EXMEM,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum MemoryRange {
     Byte,
     ByteUnsigned,
@@ -37,7 +37,7 @@ pub enum MemoryRange {
     Word,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MemoryOperation {
     pub is_load: bool,
     pub memory_range: MemoryRange,
@@ -47,6 +47,7 @@ pub struct IFID {
     pub instruction: u32,
 }
 
+#[derive(Debug)]
 pub struct IDEX {
     pub opcode: Opcode,
     pub operands: Option<OperandsFormat>,

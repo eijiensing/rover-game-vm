@@ -84,6 +84,19 @@ impl VM {
         self.cycle += 5;
     }
 
+    pub fn run(&mut self) {
+        loop {
+            self.step();
+            if self.if_id.is_none()
+                && self.id_ex.is_none()
+                && self.ex_mem.is_none()
+                && self.mem_wb.is_none()
+            {
+                break;
+            }
+        }
+    }
+
     pub fn step(&mut self) {
         println!("cycle: {}", self.cycle);
         self.writeback();
@@ -120,6 +133,7 @@ impl VM {
 
     fn decode(&mut self) {
         self.stall = false;
+
         let Some(if_id) = self.if_id.as_ref() else {
             self.id_ex = None;
             return;
@@ -128,6 +142,7 @@ impl VM {
         for def in &self.instruction_definitions {
             if if_id.instruction & def.mask == def.match_val {
                 let decoded = (def.decode)(if_id.instruction, &self.registers);
+                println!("{decoded:#?}");
                 match self.detect_data_hazard(&decoded) {
                     HazardAction::Forward => {
                         todo!()
@@ -136,7 +151,6 @@ impl VM {
                         self.id_ex = Some(decoded);
                     }
                     HazardAction::Stall => {
-                        println!("stalling!");
                         self.id_ex = None;
                         self.stall = true;
                     }
@@ -156,6 +170,7 @@ impl VM {
         };
 
         if let Some(execute_function) = self.execution_table.get(&id_ex.opcode) {
+            println!("Calculated something");
             self.ex_mem = Some(execute_function(id_ex, &mut self.pc));
         }
     }
@@ -221,6 +236,8 @@ impl VM {
             None => return,
         };
 
+        println!("written {} to register x{}", mem_wb.value, mem_wb.rd);
+
         self.registers[mem_wb.rd] = mem_wb.value;
     }
 
@@ -243,12 +260,12 @@ impl VM {
                 };
             }
         }
-        // if self.hazard_strategy == HazardStrategy::Bypassing {
-        //     return false;
-        // }
-        if let Some(mem_wb) = &self.mem_wb {
-            if registers.contains(&mem_wb.rd) {
-                return HazardAction::Stall;
+        if self.hazard_strategy == HazardStrategy::Interlock {
+            // if we use interlock we need an extra stall
+            if let Some(mem_wb) = &self.mem_wb {
+                if registers.contains(&mem_wb.rd) {
+                    return HazardAction::Stall;
+                }
             }
         }
         HazardAction::None
@@ -269,16 +286,10 @@ mod tests {
             vec![0x13, 0x04, 0x50, 0x00, 0x93, 0x04, 0x54, 0x00],
             HazardStrategy::Interlock,
         );
-        vm.step();
-        vm.step();
-        vm.step();
-        vm.step();
-        vm.step();
-        vm.step();
-        vm.step();
-        vm.step();
+        vm.run();
         assert_eq!(vm.registers[8], 5);
         assert_eq!(vm.registers[9], 10);
+        assert_eq!(vm.cycle, 8); // with interlock strategy we need 2 stalls
     }
 
     #[test]
