@@ -43,6 +43,7 @@ pub struct MemoryOperation {
     pub memory_range: MemoryRange,
 }
 
+#[derive(Debug)]
 pub struct IFID {
     pub instruction: u32,
 }
@@ -54,6 +55,7 @@ pub struct IDEX {
     pub memory_operation: Option<MemoryOperation>,
 }
 
+#[derive(Debug)]
 pub struct EXMEM {
     pub rd: Option<usize>,
     pub calculation_result: i32,
@@ -61,6 +63,7 @@ pub struct EXMEM {
     pub memory_operation: Option<MemoryOperation>,
 }
 
+#[derive(Debug)]
 pub struct MEMWB {
     pub rd: usize,
     pub value: i32,

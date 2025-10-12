@@ -12,22 +12,14 @@ use super::{
     utypes::UTYPE_LIST,
 };
 
-#[derive(Default, PartialEq)]
-pub enum HazardStrategy {
-    #[default]
-    Interlock,
-    Bypassing,
-}
-
 pub enum HazardAction {
     None,
     Stall,
-    Forward,
+    Forward(bool), // boolean indicates if it concerns the first register like r1 or r2
 }
 
 #[derive(Default)]
 pub struct VM {
-    hazard_strategy: HazardStrategy,
     instruction_definitions: Vec<InstructionDefinition>,
     execution_table: HashMap<Opcode, fn(&IDEX, &mut usize) -> EXMEM>,
     memory: Vec<u8>,
@@ -35,6 +27,8 @@ pub struct VM {
     pc: usize,
     cycle: usize,
     stall: bool,
+    forward_r1: Option<bool>, // if some then forward, bool true = r1 otherwise r2 TODO: replace
+                              // with a struct?
     if_id: Option<IFID>,
     id_ex: Option<IDEX>,
     ex_mem: Option<EXMEM>,
@@ -42,7 +36,7 @@ pub struct VM {
 }
 
 impl VM {
-    pub fn new(memory: Vec<u8>, hazard_strategy: HazardStrategy) -> Self {
+    pub fn new(memory: Vec<u8>) -> Self {
         let instruction_definitions: Vec<InstructionDefinition> = [
             &RTYPE_LIST[..],
             &ITYPE_LIST[..],
@@ -70,8 +64,8 @@ impl VM {
             mem_wb: None,
             instruction_definitions,
             execution_table,
-            hazard_strategy,
             stall: false,
+            forward_r1: None,
         }
     }
 
@@ -133,6 +127,7 @@ impl VM {
 
     fn decode(&mut self) {
         self.stall = false;
+        self.forward_r1 = None;
 
         let Some(if_id) = self.if_id.as_ref() else {
             self.id_ex = None;
@@ -141,11 +136,44 @@ impl VM {
 
         for def in &self.instruction_definitions {
             if if_id.instruction & def.mask == def.match_val {
-                let decoded = (def.decode)(if_id.instruction, &self.registers);
-                println!("{decoded:#?}");
+                let mut decoded = (def.decode)(if_id.instruction, &self.registers);
+
                 match self.detect_data_hazard(&decoded) {
-                    HazardAction::Forward => {
-                        todo!()
+                    HazardAction::Forward(target_r1) => {
+                        self.forward_r1 = Some(target_r1);
+                        
+                        if let Some(ex_mem) = &self.ex_mem {
+                            match decoded.operands.as_mut() {
+                                Some(OperandsFormat::Rtype { r1_val, r2_val, .. }) => {
+                                    if target_r1 {
+                                        // if true forward result to r1
+                                        *r1_val = ex_mem.calculation_result;
+                                    } else {
+                                        *r2_val = ex_mem.calculation_result;
+                                    }
+                                }
+                                Some(OperandsFormat::Itype { r1_val, .. }) => {
+                                    *r1_val = ex_mem.calculation_result;
+                                }
+                                Some(OperandsFormat::Stype { r1_val, r2_val, .. }) => {
+                                    if target_r1 {
+                                        *r1_val = ex_mem.calculation_result;
+                                    } else {
+                                        *r2_val = ex_mem.calculation_result;
+                                    }
+                                }
+                                Some(OperandsFormat::Btype { r1_val, r2_val, .. }) => {
+                                    if target_r1 {
+                                        *r1_val = ex_mem.calculation_result;
+                                    } else {
+                                        *r2_val = ex_mem.calculation_result;
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+
+                        self.id_ex = Some(decoded);
                     }
                     HazardAction::None => {
                         self.id_ex = Some(decoded);
@@ -170,7 +198,6 @@ impl VM {
         };
 
         if let Some(execute_function) = self.execution_table.get(&id_ex.opcode) {
-            println!("Calculated something");
             self.ex_mem = Some(execute_function(id_ex, &mut self.pc));
         }
     }
@@ -236,8 +263,6 @@ impl VM {
             None => return,
         };
 
-        println!("written {} to register x{}", mem_wb.value, mem_wb.rd);
-
         self.registers[mem_wb.rd] = mem_wb.value;
     }
 
@@ -253,18 +278,15 @@ impl VM {
 
     fn check_steps(&self, registers: &[usize]) -> HazardAction {
         if let Some(ex_mem) = &self.ex_mem {
-            if ex_mem.rd.is_some_and(|x| x != 0 && registers.contains(&x)) {
-                return match self.hazard_strategy {
-                    HazardStrategy::Interlock => HazardAction::Stall,
-                    HazardStrategy::Bypassing => HazardAction::Forward,
-                };
-            }
-        }
-        if self.hazard_strategy == HazardStrategy::Interlock {
-            // if we use interlock we need an extra stall
-            if let Some(mem_wb) = &self.mem_wb {
-                if registers.contains(&mem_wb.rd) {
-                    return HazardAction::Stall;
+            if let Some(rd) = ex_mem.rd {
+                if rd != 0 {
+                    let rd_index = registers.iter().position(|y| y == &rd);
+                    if rd_index.is_some() {
+                        if ex_mem.memory_operation.as_ref().is_some_and(|x| x.is_load) {
+                            return HazardAction::Stall;
+                        }
+                        return HazardAction::Forward(rd_index.unwrap() == 0);
+                    }
                 }
             }
         }
@@ -274,29 +296,24 @@ impl VM {
 
 #[cfg(test)]
 mod tests {
-    use crate::vm::vm::HazardStrategy;
-
     use super::VM;
 
     #[test]
     fn test_data_hazard_addi() {
         // ADDI x8, x0, 5
         // ADDI x9, x8, 5
-        let mut vm = VM::new(
-            vec![0x13, 0x04, 0x50, 0x00, 0x93, 0x04, 0x54, 0x00],
-            HazardStrategy::Interlock,
-        );
+        let mut vm = VM::new(vec![0x13, 0x04, 0x50, 0x00, 0x93, 0x04, 0x54, 0x00]);
         vm.run();
         assert_eq!(vm.registers[8], 5);
         assert_eq!(vm.registers[9], 10);
-        assert_eq!(vm.cycle, 8); // with interlock strategy we need 2 stalls
+        assert_eq!(vm.cycle, 6); // with interlock strategy we need 2 stalls
     }
 
     #[test]
     fn test_addi() {
         // ADDI x1, x0, 5
         // 000000000101 00000 000 00001 0010011
-        let mut vm = VM::new(vec![0x93, 0x00, 0x50, 0x00], HazardStrategy::Interlock);
+        let mut vm = VM::new(vec![0x93, 0x00, 0x50, 0x00]);
         vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 5);
     }
@@ -305,10 +322,7 @@ mod tests {
     fn test_lb() {
         // LB x1, 4(x0)
         // 000000000100 00000 000 00001 0000011
-        let mut vm = VM::new(
-            vec![0x83, 0x00, 0x40, 0x00, 0x05],
-            HazardStrategy::Interlock,
-        );
+        let mut vm = VM::new(vec![0x83, 0x00, 0x40, 0x00, 0x05]);
         vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 0x05);
     }
@@ -317,10 +331,7 @@ mod tests {
     fn test_sb() {
         // SB x0, 4(x0)
         // 00000000 0000 00000 000 00100 0100011
-        let mut vm = VM::new(
-            vec![0x23, 0x02, 0x00, 0x00, 0x05],
-            HazardStrategy::Interlock,
-        );
+        let mut vm = VM::new(vec![0x23, 0x02, 0x00, 0x00, 0x05]);
         vm.step_no_pipeline();
         assert_eq!(vm.memory[4], 0x00);
     }
@@ -340,7 +351,7 @@ mod tests {
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
-        let mut vm = VM::new(program, HazardStrategy::Interlock);
+        let mut vm = VM::new(program);
         vm.step_no_pipeline(); // JAL
         vm.step_no_pipeline(); // ADDI x3
 
@@ -352,7 +363,7 @@ mod tests {
     #[test]
     fn test_add() {
         // ADD x0, x1, x2
-        let mut vm = VM::new(vec![0x33, 0x80, 0x20, 0x00], HazardStrategy::Interlock);
+        let mut vm = VM::new(vec![0x33, 0x80, 0x20, 0x00]);
         vm.registers[1] = 1;
         vm.registers[2] = 2;
         vm.step_no_pipeline();
@@ -362,7 +373,7 @@ mod tests {
     #[test]
     fn test_lui() {
         // LUI x1, 1
-        let mut vm = VM::new(vec![0xb7, 0x10, 0x00, 0x00], HazardStrategy::Interlock);
+        let mut vm = VM::new(vec![0xb7, 0x10, 0x00, 0x00]);
         vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 4096);
     }
@@ -379,7 +390,7 @@ mod tests {
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
-        let mut vm = VM::new(program, HazardStrategy::Interlock);
+        let mut vm = VM::new(program);
         vm.step_no_pipeline(); // BEQ
         vm.step_no_pipeline(); // ADDI x3
 
@@ -395,7 +406,7 @@ mod tests {
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
-        let mut vm = VM::new(program, HazardStrategy::Interlock);
+        let mut vm = VM::new(program);
         vm.registers[1] = 1;
         vm.step_no_pipeline(); // BEQ
         vm.step_no_pipeline(); // ADDI x3
