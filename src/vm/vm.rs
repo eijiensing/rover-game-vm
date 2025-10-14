@@ -1,11 +1,6 @@
-use std::collections::HashMap;
-
 use super::{
     btypes::BTYPE_LIST,
-    common::{
-        EXMEM, ExecuteResult, IDEX, IFID, InstructionDefinition, MEMWB, MemoryRange, Opcode,
-        OperandsFormat,
-    },
+    common::{EXMEM, IDEX, IFID, InstructionDefinition, MEMWB, MemoryRange, OperandsFormat},
     itypes::ITYPE_LIST,
     jtypes::JTYPE_LIST,
     rtypes::RTYPE_LIST,
@@ -23,7 +18,6 @@ pub enum HazardAction {
 #[derive(Default)]
 pub struct VM {
     instruction_definitions: Vec<InstructionDefinition>,
-    execution_table: HashMap<Opcode, fn(&IDEX) -> ExecuteResult>,
     memory: Vec<u8>,
     registers: [i32; 32],
     pc: usize,
@@ -47,12 +41,6 @@ impl VM {
         ]
         .concat();
 
-        let mut execution_table = HashMap::new();
-
-        for def in &instruction_definitions {
-            execution_table.insert(def.opcode.clone(), def.execute);
-        }
-
         Self {
             pc: 0,
             memory,
@@ -63,7 +51,6 @@ impl VM {
             ex_mem: None,
             mem_wb: None,
             instruction_definitions,
-            execution_table,
             stall: false,
         }
     }
@@ -91,16 +78,10 @@ impl VM {
     }
 
     pub fn step(&mut self) {
-        println!("cycle: {}, on pc: {}",self.cycle, self.pc);
-        println!("# writeback");
         self.writeback();
-        println!("# memory");
         self.memory();
-        println!("# execute");
         self.execute();
-        println!("# decode");
         self.decode();
-        println!("# fetch");
         self.fetch();
         self.cycle += 1;
     }
@@ -114,7 +95,10 @@ impl VM {
         if pc + 4 <= self.memory.len() {
             let bytes = &self.memory[pc..pc + 4];
             let instruction = u32::from_le_bytes(bytes.try_into().unwrap());
-            self.if_id = Some(IFID { instruction, address: self.pc });
+            self.if_id = Some(IFID {
+                instruction,
+                address: self.pc,
+            });
             // eagerly update the pc, this can be overwritten in the execute stage if the instruction
             // is a branch/ jump
             self.pc += 4;
@@ -183,7 +167,6 @@ impl VM {
                         self.id_ex = Some(decoded);
                     }
                     HazardAction::None => {
-                        println!("decoded {decoded:?}");
                         self.id_ex = Some(decoded);
                     }
                     HazardAction::Stall => {
@@ -205,20 +188,18 @@ impl VM {
             }
         };
 
-        if let Some(execute_function) = self.execution_table.get(&id_ex.opcode) {
-            let result = execute_function(id_ex);
+        let result = (id_ex.execute)(id_ex);
 
-            if let Some(new_pc) = result.new_pc {
-                self.pc = new_pc;
-            }
-
-            if result.flush {
-                self.if_id = None;
-                self.id_ex = None;
-            }
-
-            self.ex_mem = Some(result.ex_mem);
+        if let Some(new_pc) = result.new_pc {
+            self.pc = new_pc;
         }
+
+        if result.flush {
+            self.if_id = None;
+            self.id_ex = None;
+        }
+
+        self.ex_mem = Some(result.ex_mem);
     }
 
     fn memory(&mut self) {
@@ -289,36 +270,33 @@ impl VM {
     }
 
     fn detect_data_hazard(&self, id_ex: &IDEX) -> HazardAction {
-        return match &id_ex.operands {
-            &Some(OperandsFormat::Rtype { r1, r2, .. }) => self.check_steps(&[r1, r2]),
-            &Some(OperandsFormat::Itype { r1, .. }) => self.check_steps(&[r1]),
-            &Some(OperandsFormat::Stype { r1, r2, .. }) => self.check_steps(&[r1, r2]),
-            &Some(OperandsFormat::Btype { r1, r2, .. }) => self.check_steps(&[r1, r2]),
+        match id_ex.operands {
+            Some(OperandsFormat::Rtype { r1, r2, .. }) => self.check_steps(&[r1, r2]),
+            Some(OperandsFormat::Itype { r1, .. }) => self.check_steps(&[r1]),
+            Some(OperandsFormat::Stype { r1, r2, .. }) => self.check_steps(&[r1, r2]),
+            Some(OperandsFormat::Btype { r1, r2, .. }) => self.check_steps(&[r1, r2]),
             _ => HazardAction::None,
-        };
+        }
     }
 
     fn check_steps(&self, registers: &[usize]) -> HazardAction {
         if let Some(ex_mem) = &self.ex_mem {
             if let Some(rd) = ex_mem.rd {
                 if rd != 0 {
-                    let rd_index = registers.iter().position(|y| y == &rd);
-                    if rd_index.is_some() {
+                    let maybe_rd_index = registers.iter().position(|y| y == &rd);
+                    if let Some(rd_index) = maybe_rd_index {
                         if ex_mem.memory_operation.as_ref().is_some_and(|x| x.is_load) {
-                            println!("detected a hazard, we should stall!");
                             return HazardAction::Stall;
                         }
-                        println!("detected a hazard, we should forward!");
-                        return HazardAction::ForwardExecute(rd_index.unwrap() == 0);
+                        return HazardAction::ForwardExecute(rd_index == 0);
                     }
                 }
             }
         }
         if let Some(mem_wb) = &self.mem_wb {
-            let rd_index = registers.iter().position(|y| y == &mem_wb.rd);
-            if rd_index.is_some() {
-                println!("detected a hazard in memwb, we should forward?");
-                return HazardAction::ForwardMemory(rd_index.unwrap() == 0);
+            let maybe_rd_index = registers.iter().position(|y| y == &mem_wb.rd);
+            if let Some(rd_index) = maybe_rd_index {
+                return HazardAction::ForwardMemory(rd_index == 0);
             }
         }
         HazardAction::None
@@ -382,7 +360,6 @@ mod tests {
         assert_eq!(vm.cycle, 6); // 1 stall
     }
 
-
     #[test]
     fn test_data_hazard_addi_beq() {
         // ADDI x1, x0, 1
@@ -401,19 +378,16 @@ mod tests {
         assert_eq!(vm.registers[4], 5);
     }
 
-
     // === PIPELINED ==============
-    
+
     #[test]
     fn test_bne_for_loop() {
         // ADDI x9, x0, 10
         // ADDI x8, x8, 1
-        // BNE x8, x9, -4 
+        // BNE x8, x9, -4
 
         let program = vec![
-            0x93, 0x04, 0xa0, 0x00,
-            0x13, 0x04, 0x14, 0x00,
-            0xe3, 0x1e, 0x94, 0xfe,
+            0x93, 0x04, 0xa0, 0x00, 0x13, 0x04, 0x14, 0x00, 0xe3, 0x1e, 0x94, 0xfe,
         ];
 
         let mut vm = VM::new(program);
@@ -609,9 +583,7 @@ mod tests {
         // ADDI x3, x0, 99
 
         let program = vec![
-            0x63, 0x14, 0x10, 0x00,
-            0x13, 0x01, 0xa0, 0x02,
-            0x93, 0x01, 0x30, 0x06,
+            0x63, 0x14, 0x10, 0x00, 0x13, 0x01, 0xa0, 0x02, 0x93, 0x01, 0x30, 0x06,
         ];
 
         let mut vm = VM::new(program);

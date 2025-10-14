@@ -1,7 +1,7 @@
 use crate::inst::{MASK_ADDI, MASK_LB, MATCH_ADDI, MATCH_LB};
 
 use super::common::{
-    EXMEM, ExecuteResult, IDEX, InstructionDefinition, MemoryOperation, MemoryRange, Opcode,
+    EXMEM, ExecuteResult, IDEX, InstructionDefinition, MemoryOperation, MemoryRange,
     OperandsFormat,
 };
 
@@ -20,66 +20,62 @@ fn extract_itype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
 
 pub const ITYPE_LIST: [InstructionDefinition; 2] = [
     InstructionDefinition {
-        opcode: Opcode::Addi,
         mask: MASK_ADDI,
         match_val: MATCH_ADDI,
         decode: |instruction, registers, address| IDEX {
-            opcode: Opcode::Addi, 
             operands: Some(extract_itype(instruction, registers)),
             memory_operation: None,
             address,
-        },
-        execute: |id_ex| {
-            if let Some(OperandsFormat::Itype {
-                rd, r1_val, imm, ..
-            }) = &id_ex.operands
-            {
-                ExecuteResult {
-                    ex_mem: EXMEM {
-                        rd: Some(*rd),
-                        calculation_result: r1_val.wrapping_add(*imm),
-                        memory_operation: None,
-                        operands: id_ex.operands.clone(),
-                    },
-                    flush: false,
-                    new_pc: None,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Itype {
+                    rd, r1_val, imm, ..
+                }) = &id_ex.operands
+                {
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: Some(*rd),
+                            calculation_result: r1_val.wrapping_add(*imm),
+                            memory_operation: None,
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush: false,
+                        new_pc: None,
+                    }
+                } else {
+                    unreachable!()
                 }
-            } else {
-                unreachable!()
-            }
+            },
         },
     },
     InstructionDefinition {
         mask: MASK_LB,
         match_val: MATCH_LB,
         decode: |instruction, registers, address| IDEX {
-            opcode: Opcode::Lb,
             operands: Some(extract_itype(instruction, registers)),
             memory_operation: Some(MemoryOperation {
                 is_load: true,
                 memory_range: MemoryRange::Byte,
             }),
             address,
-        },
-        execute: |id_ex| {
-            if let Some(OperandsFormat::Itype {
-                rd, r1_val, imm, ..
-            }) = &id_ex.operands
-            {
-                ExecuteResult {
-                    ex_mem: EXMEM {
-                        rd: Some(*rd),
-                        calculation_result: r1_val.wrapping_add(*imm),
-                        memory_operation: id_ex.memory_operation.clone(),
-                        operands: id_ex.operands.clone(),
-                    },
-                    flush: false,
-                    new_pc: None,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Itype {
+                    rd, r1_val, imm, ..
+                }) = &id_ex.operands
+                {
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: Some(*rd),
+                            calculation_result: r1_val.wrapping_add(*imm),
+                            memory_operation: id_ex.memory_operation.clone(),
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush: false,
+                        new_pc: None,
+                    }
+                } else {
+                    unreachable!()
                 }
-            } else {
-                unreachable!()
-            }
+            },
         },
-        opcode: Opcode::Lb,
     },
 ];

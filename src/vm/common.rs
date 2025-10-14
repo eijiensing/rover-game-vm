@@ -7,7 +7,7 @@ pub enum Opcode {
     Jal,
     Lui,
     Beq,
-    Bne
+    Bne,
 }
 
 #[derive(Debug, Clone)]
@@ -53,9 +53,7 @@ pub enum OperandsFormat {
 pub struct InstructionDefinition {
     pub mask: u32,
     pub match_val: u32,
-    pub opcode: Opcode,
     pub decode: fn(u32, &[i32; 32], usize) -> IDEX,
-    pub execute: fn(&IDEX) -> ExecuteResult,
 }
 
 #[derive(Debug, Clone)]
@@ -83,15 +81,15 @@ pub struct MemoryOperation {
 #[derive(Debug)]
 pub struct IFID {
     pub instruction: u32,
-    pub address: usize
+    pub address: usize,
 }
 
 #[derive(Debug)]
 pub struct IDEX {
-    pub opcode: Opcode,
     pub operands: Option<OperandsFormat>,
     pub memory_operation: Option<MemoryOperation>,
-    pub address: usize
+    pub address: usize,
+    pub execute: fn(&IDEX) -> ExecuteResult,
 }
 
 #[derive(Debug, Clone)]
