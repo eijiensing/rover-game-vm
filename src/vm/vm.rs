@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use super::{
     btypes::BTYPE_LIST,
     common::{
-        EXMEM, IDEX, IFID, InstructionDefinition, MEMWB, MemoryRange, Opcode, OperandsFormat,
+        EXMEM, ExecuteResult, IDEX, IFID, InstructionDefinition, MEMWB, MemoryRange, Opcode,
+        OperandsFormat,
     },
     itypes::ITYPE_LIST,
     jtypes::JTYPE_LIST,
@@ -22,7 +23,7 @@ pub enum HazardAction {
 #[derive(Default)]
 pub struct VM {
     instruction_definitions: Vec<InstructionDefinition>,
-    execution_table: HashMap<Opcode, fn(&IDEX, &mut usize) -> EXMEM>,
+    execution_table: HashMap<Opcode, fn(&IDEX) -> ExecuteResult>,
     memory: Vec<u8>,
     registers: [i32; 32],
     pc: usize,
@@ -48,8 +49,8 @@ impl VM {
 
         let mut execution_table = HashMap::new();
 
-        for def in instruction_definitions.clone() {
-            execution_table.insert(def.opcode, def.execute);
+        for def in &instruction_definitions {
+            execution_table.insert(def.opcode.clone(), def.execute);
         }
 
         Self {
@@ -90,11 +91,16 @@ impl VM {
     }
 
     pub fn step(&mut self) {
-        println!("{}", self.pc);
+        println!("cycle: {}, on pc: {}",self.cycle, self.pc);
+        println!("# writeback");
         self.writeback();
+        println!("# memory");
         self.memory();
+        println!("# execute");
         self.execute();
+        println!("# decode");
         self.decode();
+        println!("# fetch");
         self.fetch();
         self.cycle += 1;
     }
@@ -108,7 +114,7 @@ impl VM {
         if pc + 4 <= self.memory.len() {
             let bytes = &self.memory[pc..pc + 4];
             let instruction = u32::from_le_bytes(bytes.try_into().unwrap());
-            self.if_id = Some(IFID { instruction });
+            self.if_id = Some(IFID { instruction, address: self.pc });
             // eagerly update the pc, this can be overwritten in the execute stage if the instruction
             // is a branch/ jump
             self.pc += 4;
@@ -127,11 +133,10 @@ impl VM {
 
         for def in &self.instruction_definitions {
             if if_id.instruction & def.mask == def.match_val {
-                let mut decoded = (def.decode)(if_id.instruction, &self.registers);
+                let mut decoded = (def.decode)(if_id.instruction, &self.registers, if_id.address);
 
                 match self.detect_data_hazard(&decoded) {
                     HazardAction::ForwardExecute(target_r1) => {
-                        println!("before {decoded:?}");
                         if let Some(ex_mem) = &self.ex_mem {
                             match decoded.operands.as_mut() {
                                 Some(
@@ -152,8 +157,6 @@ impl VM {
                                 _ => (),
                             }
                         }
-
-                        println!("after  {decoded:?}");
                         self.id_ex = Some(decoded);
                     }
                     HazardAction::ForwardMemory(target_r1) => {
@@ -180,6 +183,7 @@ impl VM {
                         self.id_ex = Some(decoded);
                     }
                     HazardAction::None => {
+                        println!("decoded {decoded:?}");
                         self.id_ex = Some(decoded);
                     }
                     HazardAction::Stall => {
@@ -202,7 +206,18 @@ impl VM {
         };
 
         if let Some(execute_function) = self.execution_table.get(&id_ex.opcode) {
-            self.ex_mem = Some(execute_function(id_ex, &mut self.pc));
+            let result = execute_function(id_ex);
+
+            if let Some(new_pc) = result.new_pc {
+                self.pc = new_pc;
+            }
+
+            if result.flush {
+                self.if_id = None;
+                self.id_ex = None;
+            }
+
+            self.ex_mem = Some(result.ex_mem);
         }
     }
 
@@ -314,6 +329,8 @@ impl VM {
 mod tests {
     use super::VM;
 
+    // === DATA HAZARDS ==============
+
     #[test]
     fn test_data_hazard_addi() {
         // ADDI x8, x0, 5
@@ -365,24 +382,64 @@ mod tests {
         assert_eq!(vm.cycle, 6); // 1 stall
     }
 
+
     #[test]
-    fn test_addi_beq_dependency() {
+    fn test_data_hazard_addi_beq() {
         // ADDI x1, x0, 1
         // BEQ x1, x2, 8
         // ADDI x3, x0, 5 skip this one
-        // ADDI x4, x0, 5 
+        // ADDI x4, x0, 5
 
         let mut vm = VM::new(vec![
-            0x93, 0x00, 0x10, 0x00, 
-            0x63, 0x84, 0x20, 0x00,
-            0x93, 0x01, 0x50, 0x00,
-            0x13, 0x02, 0x50, 0x00,
+            0x93, 0x00, 0x10, 0x00, 0x63, 0x84, 0x20, 0x00, 0x93, 0x01, 0x50, 0x00, 0x13, 0x02,
+            0x50, 0x00,
         ]);
         vm.registers[2] = 1;
         vm.run();
 
         assert_eq!(vm.registers[3], 0); // skipped
         assert_eq!(vm.registers[4], 5);
+    }
+
+
+    // === PIPELINED ==============
+    
+    #[test]
+    fn test_bne_for_loop() {
+        // ADDI x9, x0, 10
+        // ADDI x8, x8, 1
+        // BNE x8, x9, -4 
+
+        let program = vec![
+            0x93, 0x04, 0xa0, 0x00,
+            0x13, 0x04, 0x14, 0x00,
+            0xe3, 0x1e, 0x94, 0xfe,
+        ];
+
+        let mut vm = VM::new(program);
+        vm.run();
+
+        assert_eq!(vm.registers[8], 10);
+    }
+
+    #[test]
+    fn test_jal_flush() {
+        // JAL x1, 8
+        // ADDI x2, x0, 42
+        // ADDI x3, x0, 99
+
+        let program = vec![
+            0xef, 0x00, 0x80, 0x00, // JAL x1, 8
+            0x13, 0x01, 0xa0, 0x02, // ADDI x2, x0, 42 (should be skipped)
+            0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
+        ];
+
+        let mut vm = VM::new(program);
+        vm.run();
+
+        assert_eq!(vm.registers[1], 4); // x1 = return address (pc + 4 before jump)
+        assert_eq!(vm.registers[2], 0); // x2 not set (skipped)
+        assert_eq!(vm.registers[3], 99); // x3 set by ADDI
     }
 
     #[test]
@@ -432,6 +489,8 @@ mod tests {
         assert_eq!(vm.cycle, 6); // no stalls
     }
 
+    // === NON PIPELINED ==============
+
     #[test]
     fn test_addi() {
         // ADDI x1, x0, 5
@@ -439,6 +498,14 @@ mod tests {
         let mut vm = VM::new(vec![0x93, 0x00, 0x50, 0x00]);
         vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 5);
+    }
+
+    #[test]
+    fn test_addi_x0_remain_0() {
+        // ADDI x0, x0, 5
+        let mut vm = VM::new(vec![0x13, 0x00, 0x50, 0x00]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[0], 0);
     }
 
     #[test]
@@ -461,11 +528,8 @@ mod tests {
     #[test]
     fn test_jal() {
         // JAL x1, 8
-        // 00000000 10000000 00000000 11101111
         // ADDI x2, x0, 42
-        // 00000010 10100000 00000001 00010011
         // ADDI x3, x0, 99
-        // 00000110 00110000 00000001 10010011
 
         let program = vec![
             0xef, 0x00, 0x80, 0x00, // JAL x1, 8
@@ -535,6 +599,26 @@ mod tests {
         vm.step_no_pipeline(); // ADDI x3
 
         assert_eq!(vm.registers[2], 42); // x2 set by ADDI
+        assert_eq!(vm.registers[3], 99); // x3 set by ADDI
+    }
+
+    #[test]
+    fn test_bne() {
+        // BNE x0, x1, 8
+        // ADDI x2, x0, 42
+        // ADDI x3, x0, 99
+
+        let program = vec![
+            0x63, 0x14, 0x10, 0x00,
+            0x13, 0x01, 0xa0, 0x02,
+            0x93, 0x01, 0x30, 0x06,
+        ];
+
+        let mut vm = VM::new(program);
+        vm.registers[1] = 1; // make the condition false
+        vm.step_no_pipeline();
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[2], 0); // x2 not set (skipped)
         assert_eq!(vm.registers[3], 99); // x3 set by ADDI
     }
 }

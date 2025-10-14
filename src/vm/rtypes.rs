@@ -1,6 +1,6 @@
 use crate::inst::{MASK_ADD, MATCH_ADD};
 
-use super::common::{InstructionDefinition, Opcode, OperandsFormat, EXMEM, IDEX};
+use super::common::{EXMEM, ExecuteResult, IDEX, InstructionDefinition, Opcode, OperandsFormat};
 
 fn extract_rtype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
     let r1 = ((instruction >> 15) & 0x1f) as usize;
@@ -14,34 +14,37 @@ fn extract_rtype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
         r1_val: rs1_value,
         r2_val: rs2_value,
         r1,
-        r2
+        r2,
     }
 }
 
-
-pub const RTYPE_LIST: [InstructionDefinition; 1] = [
-    InstructionDefinition {
-        mask: MASK_ADD,
-        match_val:MATCH_ADD,
-        decode: |instruction, registers| { 
-            IDEX {
-                opcode: Opcode::Add,
-                operands: Some(extract_rtype(instruction, registers)),
-                memory_operation: None,
-            }
-        },
-        execute: |id_ex, _| {
-            if let Some(OperandsFormat::Rtype { rd, r1_val, r2_val, r1: _, r2: _ }) = &id_ex.operands {
-                EXMEM {
+pub const RTYPE_LIST: [InstructionDefinition; 1] = [InstructionDefinition {
+    mask: MASK_ADD,
+    match_val: MATCH_ADD,
+    decode: |instruction, registers, address| IDEX {
+        opcode: Opcode::Add,
+        operands: Some(extract_rtype(instruction, registers)),
+        memory_operation: None,
+        address,
+    },
+    execute: |id_ex| {
+        if let Some(OperandsFormat::Rtype {
+            rd, r1_val, r2_val, ..
+        }) = &id_ex.operands
+        {
+            ExecuteResult {
+                ex_mem: EXMEM {
                     rd: Some(*rd),
                     calculation_result: r1_val.wrapping_add(*r2_val),
                     memory_operation: None,
                     operands: id_ex.operands.clone(),
-                }
-            } else {
-                unreachable!()
+                },
+                flush: false,
+                new_pc: None,
             }
-        },
-        opcode: Opcode::Add
+        } else {
+            unreachable!()
+        }
     },
-];
+    opcode: Opcode::Add,
+}];

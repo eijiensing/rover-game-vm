@@ -1,6 +1,9 @@
 use crate::inst::{MASK_SB, MATCH_SB};
 
-use super::common::{InstructionDefinition, MemoryOperation, MemoryRange, Opcode, OperandsFormat, EXMEM, IDEX};
+use super::common::{
+    EXMEM, ExecuteResult, IDEX, InstructionDefinition, MemoryOperation, MemoryRange, Opcode,
+    OperandsFormat,
+};
 
 fn extract_stype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
     let r1 = ((instruction >> 15) & 0x1f) as usize;
@@ -22,36 +25,37 @@ fn extract_stype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
         r2_val: rs2_value,
         imm,
         r1,
-        r2
+        r2,
     }
 }
 
-pub const STYPE_LIST: [InstructionDefinition; 1] = [
-    InstructionDefinition {
-        mask: MASK_SB,
-        match_val:MATCH_SB,
-        decode: |instruction, registers| { 
-            IDEX {
-                opcode: Opcode::Sb,
-                operands: Some(extract_stype(instruction, registers)),
-                memory_operation: Some(MemoryOperation {
-                    is_load: false,
-                    memory_range: MemoryRange::Byte,
-                }),
-            }
-        },
-        execute: |id_ex, _| {
-            if let Some(OperandsFormat::Stype { r1_val, imm, r2_val: _, r1: _, r2: _ }) = &id_ex.operands {
-                EXMEM {
+pub const STYPE_LIST: [InstructionDefinition; 1] = [InstructionDefinition {
+    mask: MASK_SB,
+    match_val: MATCH_SB,
+    decode: |instruction, registers, address| IDEX {
+        opcode: Opcode::Sb,
+        operands: Some(extract_stype(instruction, registers)),
+        memory_operation: Some(MemoryOperation {
+            is_load: false,
+            memory_range: MemoryRange::Byte,
+        }),
+        address,
+    },
+    execute: |id_ex| {
+        if let Some(OperandsFormat::Stype { r1_val, imm, .. }) = &id_ex.operands {
+            ExecuteResult {
+                ex_mem: EXMEM {
                     rd: None,
                     calculation_result: r1_val.wrapping_add(*imm),
                     memory_operation: id_ex.memory_operation.clone(),
                     operands: id_ex.operands.clone(),
-                }
-            } else {
-                unreachable!()
+                },
+                flush: false,
+                new_pc: None,
             }
-        },
-        opcode: Opcode::Sb
+        } else {
+            unreachable!()
+        }
     },
-];
+    opcode: Opcode::Sb,
+}];
