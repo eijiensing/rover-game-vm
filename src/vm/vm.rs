@@ -531,6 +531,37 @@ mod tests {
     }
 
     #[test]
+    fn test_sub() {
+        // SUB x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0x84, 0xa4, 0x40]);
+        vm.registers[9] = 2;
+        vm.registers[10] = 1;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 1);
+    }
+
+    #[test]
+    fn test_xor() {
+        // XOR x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xc4, 0xa4, 0x00]);
+        vm.registers[9] = 0b11111000;
+        vm.registers[10] = 0b00011110;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b11100110);
+    }
+
+    #[test]
+    fn test_or() {
+        // OR x8, x9, x10
+        // 00 a4 e4 33
+        let mut vm = VM::new(vec![0x33, 0xe4, 0xa4, 0x00]);
+        vm.registers[9] = 0b11111000;
+        vm.registers[10] = 0b00011110;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b11111110);
+    }
+
+    #[test]
     fn test_lui() {
         // LUI x1, 1
         let mut vm = VM::new(vec![0xb7, 0x10, 0x00, 0x00]);
