@@ -1,6 +1,15 @@
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Hash)]
 pub enum Opcode {
     Add,
+    Sub,
+    Xor,
+    Or,
+    And,
+    Sll,
+    Srl,
+    Sra,
+    Slt,
+    Sltu,
     Addi,
     Lb,
     Sb,
