@@ -553,12 +553,31 @@ mod tests {
     #[test]
     fn test_or() {
         // OR x8, x9, x10
-        // 00 a4 e4 33
         let mut vm = VM::new(vec![0x33, 0xe4, 0xa4, 0x00]);
         vm.registers[9] = 0b11111000;
         vm.registers[10] = 0b00011110;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b11111110);
+    }
+
+    #[test]
+    fn test_and() {
+        // AND x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xf4, 0xa4, 0x00]);
+        vm.registers[9] = 0b11111000;
+        vm.registers[10] = 0b00011110;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00011000);
+    }
+
+    #[test]
+    fn test_sll() {
+        // SLL x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0x94, 0xa4, 0x00]);
+        vm.registers[9] = 0b00000000_00000000_00000000_11111000;
+        vm.registers[10] = 2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00000000_00000000_00000011_11100000);
     }
 
     #[test]
