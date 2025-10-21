@@ -1,8 +1,7 @@
-use crate::inst::{MASK_SB, MATCH_SB};
+use crate::inst::{MASK_SB, MASK_SH, MASK_SW, MATCH_SB, MATCH_SH, MATCH_SW};
 
 use super::common::{
-    EXMEM, ExecuteResult, IDEX, InstructionDefinition, MemoryOperation, MemoryRange,
-    OperandsFormat,
+    EXMEM, ExecuteResult, IDEX, InstructionDefinition, MemoryOperation, MemoryRange, OperandsFormat,
 };
 
 fn extract_stype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
@@ -29,31 +28,89 @@ fn extract_stype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
     }
 }
 
-pub const STYPE_LIST: [InstructionDefinition; 1] = [InstructionDefinition {
-    mask: MASK_SB,
-    match_val: MATCH_SB,
-    decode: |instruction, registers, address| IDEX {
-        operands: Some(extract_stype(instruction, registers)),
-        memory_operation: Some(MemoryOperation {
-            is_load: false,
-            memory_range: MemoryRange::Byte,
-        }),
-        address,
-        execute: |id_ex| {
-            if let Some(OperandsFormat::Stype { r1_val, imm, .. }) = &id_ex.operands {
-                ExecuteResult {
-                    ex_mem: EXMEM {
-                        rd: None,
-                        calculation_result: r1_val.wrapping_add(*imm),
-                        memory_operation: id_ex.memory_operation.clone(),
-                        operands: id_ex.operands.clone(),
-                    },
-                    flush: false,
-                    new_pc: None,
+pub const STYPE_LIST: [InstructionDefinition; 3] = [
+    InstructionDefinition {
+        mask: MASK_SB,
+        match_val: MATCH_SB,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_stype(instruction, registers)),
+            memory_operation: Some(MemoryOperation {
+                is_load: false,
+                memory_range: MemoryRange::Byte,
+            }),
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Stype { r1_val, imm, .. }) = &id_ex.operands {
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: None,
+                            calculation_result: r1_val.wrapping_add(*imm),
+                            memory_operation: id_ex.memory_operation.clone(),
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush: false,
+                        new_pc: None,
+                    }
+                } else {
+                    unreachable!()
                 }
-            } else {
-                unreachable!()
-            }
+            },
         },
     },
-}];
+    InstructionDefinition {
+        mask: MASK_SH,
+        match_val: MATCH_SH,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_stype(instruction, registers)),
+            memory_operation: Some(MemoryOperation {
+                is_load: false,
+                memory_range: MemoryRange::Half,
+            }),
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Stype { r1_val, imm, .. }) = &id_ex.operands {
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: None,
+                            calculation_result: r1_val.wrapping_add(*imm),
+                            memory_operation: id_ex.memory_operation.clone(),
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush: false,
+                        new_pc: None,
+                    }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+    InstructionDefinition {
+        mask: MASK_SW,
+        match_val: MATCH_SW,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_stype(instruction, registers)),
+            memory_operation: Some(MemoryOperation {
+                is_load: false,
+                memory_range: MemoryRange::Word,
+            }),
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Stype { r1_val, imm, .. }) = &id_ex.operands {
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: None,
+                            calculation_result: r1_val.wrapping_add(*imm),
+                            memory_operation: id_ex.memory_operation.clone(),
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush: false,
+                        new_pc: None,
+                    }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+];

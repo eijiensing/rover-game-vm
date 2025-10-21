@@ -580,6 +580,69 @@ mod tests {
         assert_eq!(vm.registers[8], 0b00000000_00000000_00000011_11100000);
     }
 
+
+    #[test]
+    fn test_srl() {
+        // SRL x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x00]);
+        vm.registers[9] = 0b00000000_00000000_00000000_11111000;
+        vm.registers[10] = 2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00000000_00000000_00000000_00111110);
+    }
+
+    #[test]
+    fn test_sra() {
+        // SRA x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x40]);
+        vm.registers[9] = 0b00000000_00000000_00000000_11111000;
+        vm.registers[10] = 2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00000000_00000000_00000000_00111110);
+
+        // SRA x8, x9, x10
+        // TODO: Test keep most significant bit
+        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x40]);
+        vm.registers[9] = 0b00000000_00000000_00000000_11111000;
+        vm.registers[10] = 2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00000000_00000000_00000000_00111110);
+    }
+
+    #[test]
+    fn test_slt() {
+        // SLT x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xa4, 0xa4, 0x00]);
+        vm.registers[9] = 1;
+        vm.registers[10] = 2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 1);
+
+        // SLTT x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xa4, 0xa4, 0x00]);
+        vm.registers[9] = -2;
+        vm.registers[10] = 1;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 1);
+    }
+
+    #[test]
+    fn test_sltu() {
+        // SLTU x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xb4, 0xa4, 0x00]);
+        vm.registers[9] = 1;
+        vm.registers[10] = 2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 1);
+
+        // SLTU x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xb4, 0xa4, 0x00]);
+        vm.registers[9] = -2;
+        vm.registers[10] = 1;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 1);
+    }
+
     #[test]
     fn test_lui() {
         // LUI x1, 1

@@ -178,7 +178,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                     ExecuteResult {
                         ex_mem: EXMEM {
                             rd: Some(*rd),
-                            calculation_result: ((*r1_val as u32) << (shamt)) as i32,
+                            calculation_result: ((*r1_val as u32) << shamt) as i32,
                             memory_operation: None,
                             operands: id_ex.operands.clone(),
                         },
@@ -207,7 +207,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                     ExecuteResult {
                         ex_mem: EXMEM {
                             rd: Some(*rd),
-                            calculation_result: ((*r1_val as u32) >> (shamt)) as i32,
+                            calculation_result: ((*r1_val as u32) >> shamt) as i32,
                             memory_operation: None,
                             operands: id_ex.operands.clone(),
                         },
@@ -236,7 +236,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                     ExecuteResult {
                         ex_mem: EXMEM {
                             rd: Some(*rd),
-                            calculation_result: (*r1_val) >> shamt,
+                            calculation_result: *r1_val >> shamt,
                             memory_operation: None,
                             operands: id_ex.operands.clone(),
                         },

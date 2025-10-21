@@ -1,4 +1,4 @@
-use crate::inst::{MASK_BEQ, MASK_BNE, MATCH_BEQ, MATCH_BNE};
+use crate::inst::{MASK_BEQ, MASK_BGE, MASK_BGEU, MASK_BLT, MASK_BLTU, MASK_BNE, MATCH_BEQ, MATCH_BGE, MATCH_BGEU, MATCH_BLT, MATCH_BLTU, MATCH_BNE};
 
 use super::common::{EXMEM, ExecuteResult, IDEX, InstructionDefinition, OperandsFormat};
 
@@ -27,7 +27,7 @@ fn extract_btype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
     }
 }
 
-pub const BTYPE_LIST: [InstructionDefinition; 2] = [
+pub const BTYPE_LIST: [InstructionDefinition; 6] = [
     InstructionDefinition {
         mask: MASK_BEQ,
         match_val: MATCH_BEQ,
@@ -85,6 +85,158 @@ pub const BTYPE_LIST: [InstructionDefinition; 2] = [
                     let mut flush = false;
                     let mut new_pc = None;
                     if r1_val != r2_val {
+                        new_pc = Some(old_pc.wrapping_add(*imm as usize));
+                        flush = true;
+                    }
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: None,
+                            calculation_result: imm << 12,
+                            memory_operation: None,
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush,
+                        new_pc,
+                    }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+    InstructionDefinition {
+        mask: MASK_BLT,
+        match_val: MATCH_BLT,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_btype(instruction, registers)),
+            memory_operation: None,
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Btype {
+                    imm,
+                    r1_val,
+                    r2_val,
+                    ..
+                }) = &id_ex.operands
+                {
+                    let old_pc = id_ex.address;
+                    let mut flush = false;
+                    let mut new_pc = None;
+                    if r1_val < r2_val {
+                        new_pc = Some(old_pc.wrapping_add(*imm as usize));
+                        flush = true;
+                    }
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: None,
+                            calculation_result: imm << 12,
+                            memory_operation: None,
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush,
+                        new_pc,
+                    }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+    InstructionDefinition {
+        mask: MASK_BGE,
+        match_val: MATCH_BGE,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_btype(instruction, registers)),
+            memory_operation: None,
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Btype {
+                    imm,
+                    r1_val,
+                    r2_val,
+                    ..
+                }) = &id_ex.operands
+                {
+                    let old_pc = id_ex.address;
+                    let mut flush = false;
+                    let mut new_pc = None;
+                    if r1_val >= r2_val {
+                        new_pc = Some(old_pc.wrapping_add(*imm as usize));
+                        flush = true;
+                    }
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: None,
+                            calculation_result: imm << 12,
+                            memory_operation: None,
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush,
+                        new_pc,
+                    }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+    InstructionDefinition {
+        mask: MASK_BLTU,
+        match_val: MATCH_BLTU,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_btype(instruction, registers)),
+            memory_operation: None,
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Btype {
+                    imm,
+                    r1_val,
+                    r2_val,
+                    ..
+                }) = &id_ex.operands
+                {
+                    let old_pc = id_ex.address;
+                    let mut flush = false;
+                    let mut new_pc = None;
+                    if (*r1_val as u32) < (*r2_val as u32) {
+                        new_pc = Some(old_pc.wrapping_add(*imm as usize));
+                        flush = true;
+                    }
+                    ExecuteResult {
+                        ex_mem: EXMEM {
+                            rd: None,
+                            calculation_result: imm << 12,
+                            memory_operation: None,
+                            operands: id_ex.operands.clone(),
+                        },
+                        flush,
+                        new_pc,
+                    }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+    InstructionDefinition {
+        mask: MASK_BGEU,
+        match_val: MATCH_BGEU,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_btype(instruction, registers)),
+            memory_operation: None,
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Btype {
+                    imm,
+                    r1_val,
+                    r2_val,
+                    ..
+                }) = &id_ex.operands
+                {
+                    let old_pc = id_ex.address;
+                    let mut flush = false;
+                    let mut new_pc = None;
+                    if (*r1_val as u32) >= (*r2_val as u32) {
                         new_pc = Some(old_pc.wrapping_add(*imm as usize));
                         flush = true;
                     }
