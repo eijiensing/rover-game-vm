@@ -466,32 +466,6 @@ mod tests {
     // === NON PIPELINED ==============
 
     #[test]
-    fn test_addi() {
-        // ADDI x1, x0, 5
-        // 000000000101 00000 000 00001 0010011
-        let mut vm = VM::new(vec![0x93, 0x00, 0x50, 0x00]);
-        vm.step_no_pipeline();
-        assert_eq!(vm.registers[1], 5);
-    }
-
-    #[test]
-    fn test_addi_x0_remain_0() {
-        // ADDI x0, x0, 5
-        let mut vm = VM::new(vec![0x13, 0x00, 0x50, 0x00]);
-        vm.step_no_pipeline();
-        assert_eq!(vm.registers[0], 0);
-    }
-
-    #[test]
-    fn test_lb() {
-        // LB x1, 4(x0)
-        // 000000000100 00000 000 00001 0000011
-        let mut vm = VM::new(vec![0x83, 0x00, 0x40, 0x00, 0x05]);
-        vm.step_no_pipeline();
-        assert_eq!(vm.registers[1], 0x05);
-    }
-
-    #[test]
     fn test_sb() {
         // SB x0, 4(x0)
         let mut vm = VM::new(vec![0x23, 0x02, 0x00, 0x00, 0x05]);
@@ -580,7 +554,6 @@ mod tests {
         assert_eq!(vm.registers[8], 0b00000000_00000000_00000011_11100000);
     }
 
-
     #[test]
     fn test_srl() {
         // SRL x8, x9, x10
@@ -589,6 +562,13 @@ mod tests {
         vm.registers[10] = 2;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b00000000_00000000_00000000_00111110);
+
+        // SRL x8, x9, x10
+        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x00]);
+        vm.registers[9] = -8; // 00000000_00000000_11111111_11111000
+        vm.registers[10] = 2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00111111_11111111_11111111_11111110);
     }
 
     #[test]
@@ -601,12 +581,11 @@ mod tests {
         assert_eq!(vm.registers[8], 0b00000000_00000000_00000000_00111110);
 
         // SRA x8, x9, x10
-        // TODO: Test keep most significant bit
         let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x40]);
-        vm.registers[9] = 0b00000000_00000000_00000000_11111000;
+        vm.registers[9] = -8;
         vm.registers[10] = 2;
         vm.step_no_pipeline();
-        assert_eq!(vm.registers[8], 0b00000000_00000000_00000000_00111110);
+        assert_eq!(vm.registers[8], -2);
     }
 
     #[test]
@@ -618,7 +597,7 @@ mod tests {
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 1);
 
-        // SLTT x8, x9, x10
+        // SLT x8, x9, x10
         let mut vm = VM::new(vec![0x33, 0xa4, 0xa4, 0x00]);
         vm.registers[9] = -2;
         vm.registers[10] = 1;
@@ -640,8 +619,130 @@ mod tests {
         vm.registers[9] = -2;
         vm.registers[10] = 1;
         vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0);
+    }
+
+    // === I TYPES ===
+    
+    #[test]
+    fn test_addi() {
+        // ADDI x1, x0, 5
+        // 000000000101 00000 000 00001 0010011
+        let mut vm = VM::new(vec![0x93, 0x00, 0x50, 0x00]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[1], 5);
+    }
+
+    #[test]
+    fn test_addi_x0_remain_0() {
+        // ADDI x0, x0, 5
+        let mut vm = VM::new(vec![0x13, 0x00, 0x50, 0x00]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[0], 0);
+    }
+
+    #[test]
+    fn test_xori() {
+        // XORI x8, x9, 49
+        // 49 == 0b00110001
+        let mut vm = VM::new(vec![0x13, 0xc4, 0x14, 0x03]);
+        vm.registers[9] = 97; // 0b01100001
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b01010000);
+    }
+
+    #[test]
+    fn test_ori() {
+        // ORI x8, x9, 49
+        // 49 == 0b00110001
+        let mut vm = VM::new(vec![0x13, 0xe4, 0x14, 0x03]);
+        vm.registers[9] = 97; // 0b01100001
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b01110001);
+    }
+
+    #[test]
+    fn test_andi() {
+        // ANDI x8, x9, 49
+        // 49 == 0b00110001
+        let mut vm = VM::new(vec![0x13, 0xf4, 0x14, 0x03]);
+        vm.registers[9] = 97; // 0b01100001
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00100001);
+    }
+
+    #[test]
+    fn test_slli() {
+        // SLLI x8, x9, 2
+        let mut vm = VM::new(vec![0x13, 0x94, 0x24, 0x00]);
+        vm.registers[9] = 97; // 0b01100001
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00000001_10000100);
+    }
+
+    #[test]
+    fn test_srli() {
+        // SRLI x8, x9, 2
+        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x00]);
+        vm.registers[9] = 97; // 0b01100001
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00011000);
+    }
+
+    #[test]
+    fn test_srai() {
+        // SRAI x8, x9, 2
+        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x40]);
+        vm.registers[9] = 97; // 0b01100001
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0b00011000);
+
+        // SRAI x8, x9, 2
+        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x40]);
+        vm.registers[9] = -8;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], -2);
+    }
+
+    #[test]
+    fn test_slti() {
+        // SLTI x8, x9, 2
+        let mut vm = VM::new(vec![0x13, 0xa4, 0x24, 0x00]);
+        vm.registers[9] = 1;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 1);
+
+        // SLTI x8, x9, 1
+        let mut vm = VM::new(vec![0x13, 0xa4, 0x14, 0x00]);
+        vm.registers[9] = -2;
+        vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 1);
     }
+
+    #[test]
+    fn test_sltiu() {
+        // SLTIU x8, x9, 2
+        let mut vm = VM::new(vec![0x13, 0xb4, 0x24, 0x00]);
+        vm.registers[9] = 1;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 1);
+
+        // SLTIU x8, x9, 1
+        let mut vm = VM::new(vec![0x13, 0xb4, 0x14, 0x00]);
+        vm.registers[9] = -2;
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 0);
+    }
+
+    #[test]
+    fn test_lb() {
+        // LB x1, 4(x0)
+        let mut vm = VM::new(vec![0x83, 0x00, 0x40, 0x00, 0x05]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[1], 0x05);
+    }
+    
+    // === U TYPES ===
 
     #[test]
     fn test_lui() {
@@ -650,6 +751,8 @@ mod tests {
         vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 4096);
     }
+
+    // === B TYPES ===
 
     #[test]
     fn test_beq() {
