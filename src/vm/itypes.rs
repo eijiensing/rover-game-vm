@@ -18,7 +18,7 @@ fn extract_itype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
     }
 }
 
-pub const ITYPE_LIST: [InstructionDefinition; 14] = [
+pub const ITYPE_LIST: [InstructionDefinition; 15] = [
     InstructionDefinition {
         mask: MASK_ADDI,
         match_val: MATCH_ADDI,
@@ -429,6 +429,39 @@ pub const ITYPE_LIST: [InstructionDefinition; 14] = [
                         flush: false,
                         new_pc: None,
                     }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+    InstructionDefinition {
+        mask: MASK_LHU,
+        match_val: MATCH_LHU,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_itype(instruction, registers)),
+            memory_operation: Some(MemoryOperation {
+                is_load: true,
+                memory_range: MemoryRange::HalfUnsigned,
+            }),
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Itype {
+                    rd, r1_val, imm, ..
+                }) = &id_ex.operands
+                {
+                let old_pc = id_ex.address;
+                let new_pc = Some(old_pc.wrapping_add((r1_val + imm) as usize));
+                ExecuteResult {
+                    ex_mem: EXMEM {
+                        rd: Some(*rd),
+                        calculation_result: old_pc.wrapping_add(4) as i32,
+                        memory_operation: None,
+                        operands: id_ex.operands.clone(),
+                    },
+                    flush: true,
+                    new_pc,
+                }
                 } else {
                     unreachable!()
                 }

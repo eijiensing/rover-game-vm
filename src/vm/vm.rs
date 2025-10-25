@@ -182,7 +182,7 @@ impl VM {
     fn execute(&mut self) {
         let id_ex = match self.id_ex.as_ref() {
             Some(v) => v,
-            None => {
+            _ => {
                 self.ex_mem = None;
                 return;
             }
@@ -260,7 +260,7 @@ impl VM {
     fn writeback(&mut self) {
         let mem_wb = match self.mem_wb.as_ref() {
             Some(v) => v,
-            None => return,
+            _ => return,
         };
 
         if mem_wb.rd != 0 {
@@ -464,35 +464,6 @@ mod tests {
     }
 
     // === NON PIPELINED ==============
-
-    #[test]
-    fn test_sb() {
-        // SB x0, 4(x0)
-        let mut vm = VM::new(vec![0x23, 0x02, 0x00, 0x00, 0x05]);
-        vm.step_no_pipeline();
-        assert_eq!(vm.memory[4], 0x00);
-    }
-
-    #[test]
-    fn test_jal() {
-        // JAL x1, 8
-        // ADDI x2, x0, 42
-        // ADDI x3, x0, 99
-
-        let program = vec![
-            0xef, 0x00, 0x80, 0x00, // JAL x1, 8
-            0x13, 0x01, 0xa0, 0x02, // ADDI x2, x0, 42 (should be skipped)
-            0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
-        ];
-
-        let mut vm = VM::new(program);
-        vm.step_no_pipeline(); // JAL
-        vm.step_no_pipeline(); // ADDI x3
-
-        assert_eq!(vm.registers[1], 4); // x1 = return address (pc + 4 before jump)
-        assert_eq!(vm.registers[2], 0); // x2 not set (skipped)
-        assert_eq!(vm.registers[3], 99); // x3 set by ADDI
-    }
 
     #[test]
     fn test_add() {
@@ -736,20 +707,116 @@ mod tests {
 
     #[test]
     fn test_lb() {
-        // LB x1, 4(x0)
-        let mut vm = VM::new(vec![0x83, 0x00, 0x40, 0x00, 0x05]);
+        // LB x8, 4(x0)
+        let mut vm = VM::new(vec![0x03, 0x04, 0x40, 0x00, 0x7F]);
         vm.step_no_pipeline();
-        assert_eq!(vm.registers[1], 0x05);
+        assert_eq!(vm.registers[8], i8::MAX as i32); // 127
+
+
+        // LB x8, 4(x0)
+        let mut vm = VM::new(vec![0x03, 0x04, 0x40, 0x00, 0x80]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], i8::MIN as i32); // -128
     }
-    
-    // === U TYPES ===
 
     #[test]
-    fn test_lui() {
-        // LUI x1, 1
-        let mut vm = VM::new(vec![0xb7, 0x10, 0x00, 0x00]);
+    fn test_lh() {
+        // LH x8, 4(x0)
+        let mut vm = VM::new(vec![0x03, 0x14, 0x40, 0x00, 0xFF, 0x7F]);
         vm.step_no_pipeline();
-        assert_eq!(vm.registers[1], 4096);
+        assert_eq!(vm.registers[8], i16::MAX as i32); // 32767
+
+        // LH x8, 4(x0)
+        let mut vm = VM::new(vec![0x03, 0x14, 0x40, 0x00, 0x00, 0x80]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], i16::MIN as i32); // -32768
+    }
+
+    #[test]
+    fn test_lw() {
+        // LW x8, 4(x0)
+        let mut vm = VM::new(vec![
+            0x03, 0x24, 0x40, 0x00, 
+            0xFF, 0xFF, 0xFF, 0x7F
+        ]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], i32::MAX); // 2147483647
+
+        // LW x8, 4(x0)
+        let mut vm = VM::new(vec![
+            0x03, 0x24, 0x40, 0x00, 
+            0x00, 0x00, 0x00, 0x80
+        ]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], i32::MIN); // -2147483648
+    }
+
+
+    #[test]
+    fn test_lbu() {
+        // LBU x8, 4(x0)
+        let mut vm = VM::new(vec![0x03, 0x44, 0x40, 0x00, 0xFF]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], u8::MAX as i32); // 255
+    }
+
+    #[test]
+    fn test_lhu() {
+        // LHU x8, 4(x0)
+        let mut vm = VM::new(vec![0x03, 0x54, 0x40, 0x00, 0xFF, 0xFF]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], u16::MAX as i32); // 65535 
+    }
+
+    #[test]
+    fn test_jalr() {
+        // JALR x8, x0, 8
+        // ADDI x9, x0, 42
+        // ADDI x10, x0, 99
+
+        let program = vec![
+            0xef, 0x00, 0x80, 0x00,
+            0x13, 0x01, 0xa0, 0x02,
+            0x93, 0x01, 0x30, 0x06,
+        ];
+
+        let mut vm = VM::new(program);
+        vm.step_no_pipeline(); // JAL
+        vm.step_no_pipeline(); // ADDI x3
+
+        assert_eq!(vm.registers[1], 4); // x1 = return address (pc + 4 before jump)
+        assert_eq!(vm.registers[2], 0); // x2 not set (skipped)
+        assert_eq!(vm.registers[3], 99); // x3 set by ADDI
+    }
+
+    // === S TYPES ===
+
+    #[test]
+    fn test_sb() {
+        // SB x0, 4(x0)
+        let mut vm = VM::new(vec![0x23, 0x02, 0x00, 0x00, 0x05]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.memory[4], 0x00);
+    }
+
+    #[test]
+    fn test_sh() {
+        // SH x0, 4(x0)
+        let mut vm = VM::new(vec![0x23, 0x12, 0x00, 0x00, 0x05, 0x06]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.memory[4], 0x00);
+        assert_eq!(vm.memory[5], 0x00);
+    }
+
+    #[test]
+    fn test_sw() {
+        // SW x0, 4(x0)
+        let mut vm = VM::new(vec![0x23, 0x22, 0x00, 0x00, 0x05, 0x06, 0x07, 0x08]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.memory[4], 0x00);
+        assert_eq!(vm.memory[5], 0x00);
+        assert_eq!(vm.memory[6], 0x00);
+        assert_eq!(vm.memory[7], 0x00);
     }
 
     // === B TYPES ===
@@ -794,19 +861,143 @@ mod tests {
 
     #[test]
     fn test_bne() {
-        // BNE x0, x1, 8
+        // BNE x0, x8, 8
+        // ADDI x9, x0, 42
+        // ADDI x10, x0, 99
+
+        let program = vec![
+            0x63, 0x14, 0x80, 0x00, 
+            0x93, 0x04, 0xa0, 0x02, 
+            0x13, 0x05, 0x30, 0x06,
+        ];
+
+        let mut vm = VM::new(program);
+        vm.registers[8] = 1;
+        vm.step_no_pipeline();
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[9], 0);
+        assert_eq!(vm.registers[10], 99);
+    }
+
+    #[test]
+    fn test_blt() {
+        // BLT x0, x8, 8
+        // ADDI x9, x0, 42
+        // ADDI x10, x0, 99
+
+        let program = vec![
+            0x63, 0x44, 0x80, 0x00, 
+            0x93, 0x04, 0xa0, 0x02, 
+            0x13, 0x05, 0x30, 0x06,
+        ];
+
+        let mut vm = VM::new(program);
+        vm.registers[8] = 1;
+        vm.step_no_pipeline();
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[9], 0);
+        assert_eq!(vm.registers[10], 99);
+    }
+
+    #[test]
+    fn test_bge() {
+        // BGE x0, x8, 8
+        // ADDI x9, x0, 42
+        // ADDI x10, x0, 99
+
+        let program = vec![
+            0x63, 0x54, 0x80, 0x00, 
+            0x93, 0x04, 0xa0, 0x02, 
+            0x13, 0x05, 0x30, 0x06,
+        ];
+
+        let mut vm = VM::new(program);
+        vm.registers[8] = -1;
+        vm.step_no_pipeline();
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[9], 0);
+        assert_eq!(vm.registers[10], 99);
+    }
+
+    #[test]
+    fn test_bltu() {
+        // BLTU x0, x8, 8
+        // ADDI x9, x0, 42
+        // ADDI x10, x0, 99
+
+        let program = vec![
+            0x63, 0x64, 0x80, 0x00, 
+            0x93, 0x04, 0xa0, 0x02, 
+            0x13, 0x05, 0x30, 0x06,
+        ];
+
+        let mut vm = VM::new(program);
+        vm.registers[8] = -1;
+        vm.step_no_pipeline();
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[9], 0);
+        assert_eq!(vm.registers[10], 99);
+    }
+
+    #[test]
+    fn test_bgeu() {
+        // BGEU x0, x8, 8
+        // ADDI x9, x0, 42
+        // ADDI x10, x0, 99
+
+        let program = vec![
+            0x63, 0x74, 0x80, 0x00, 
+            0x93, 0x04, 0xa0, 0x02, 
+            0x13, 0x05, 0x30, 0x06,
+        ];
+
+        let mut vm = VM::new(program);
+        vm.registers[8] = -1;
+        vm.step_no_pipeline();
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[9], 42);
+        assert_eq!(vm.registers[10], 0);
+    }
+
+    // === J TYPES ===
+
+    #[test]
+    fn test_jal() {
+        // JAL x1, 8
         // ADDI x2, x0, 42
         // ADDI x3, x0, 99
 
         let program = vec![
-            0x63, 0x14, 0x10, 0x00, 0x13, 0x01, 0xa0, 0x02, 0x93, 0x01, 0x30, 0x06,
+            0xef, 0x00, 0x80, 0x00, // JAL x1, 8
+            0x13, 0x01, 0xa0, 0x02, // ADDI x2, x0, 42 (should be skipped)
+            0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
         let mut vm = VM::new(program);
-        vm.registers[1] = 1; // make the condition false
-        vm.step_no_pipeline();
-        vm.step_no_pipeline();
+        vm.step_no_pipeline(); // JAL
+        vm.step_no_pipeline(); // ADDI x3
+
+        assert_eq!(vm.registers[1], 4); // x1 = return address (pc + 4 before jump)
         assert_eq!(vm.registers[2], 0); // x2 not set (skipped)
         assert_eq!(vm.registers[3], 99); // x3 set by ADDI
+    }
+
+
+    // === U TYPES ===
+
+    #[test]
+    fn test_lui() {
+        // LUI x1, 1
+        let mut vm = VM::new(vec![0xb7, 0x10, 0x00, 0x00]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[1], 4096);
+    }
+
+    #[test]
+    fn test_auipc() {
+        // AUIPC x8, 1
+        let mut vm = VM::new(vec![0x17, 0x14, 0x00, 0x00]);
+        vm.step_no_pipeline();
+        assert_eq!(vm.registers[8], 4096);
     }
 }
