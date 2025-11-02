@@ -1,4 +1,4 @@
-use crate::inst::{MASK_ADDI, MASK_ANDI, MASK_LB, MASK_LBU, MASK_LH, MASK_LHU, MASK_LW, MASK_ORI, MASK_SLLI, MASK_SLTI, MASK_SLTIU, MASK_SRAI, MASK_SRLI, MASK_XORI, MATCH_ADDI, MATCH_ANDI, MATCH_LB, MATCH_LBU, MATCH_LH, MATCH_LHU, MATCH_LW, MATCH_ORI, MATCH_SLLI, MATCH_SLTI, MATCH_SLTIU, MATCH_SRAI, MATCH_SRLI, MATCH_XORI};
+use crate::{inst::{MASK_ADDI, MASK_ANDI, MASK_EBREAK, MASK_ECALL, MASK_LB, MASK_LBU, MASK_LH, MASK_LHU, MASK_LW, MASK_ORI, MASK_SLLI, MASK_SLTI, MASK_SLTIU, MASK_SRAI, MASK_SRLI, MASK_XORI, MATCH_ADDI, MATCH_ANDI, MATCH_EBREAK, MATCH_ECALL, MATCH_LB, MATCH_LBU, MATCH_LH, MATCH_LHU, MATCH_LW, MATCH_ORI, MATCH_SLLI, MATCH_SLTI, MATCH_SLTIU, MATCH_SRAI, MATCH_SRLI, MATCH_XORI}, vm::common::TrapType};
 
 use super::common::{
     EXMEM, ExecuteResult, IDEX, InstructionDefinition, MemoryOperation, MemoryRange,
@@ -18,7 +18,7 @@ fn extract_itype(instruction: u32, registers: &[i32; 32]) -> OperandsFormat {
     }
 }
 
-pub const ITYPE_LIST: [InstructionDefinition; 15] = [
+pub const ITYPE_LIST: [InstructionDefinition; 17] = [
     InstructionDefinition {
         mask: MASK_ADDI,
         match_val: MATCH_ADDI,
@@ -40,6 +40,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -68,6 +69,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -96,6 +98,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -124,6 +127,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -131,8 +135,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
             },
         },
     },
-    InstructionDefinition {
-        mask: MASK_SLLI,
+    InstructionDefinition { mask: MASK_SLLI,
         match_val: MATCH_SLLI,
         decode: |instruction, registers, address| IDEX {
             operands: Some(extract_itype(instruction, registers)),
@@ -153,6 +156,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -182,6 +186,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -211,6 +216,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -240,6 +246,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -273,6 +280,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -304,6 +312,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -335,6 +344,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -366,6 +376,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -397,6 +408,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -428,6 +440,7 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                         },
                         flush: false,
                         new_pc: None,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -461,6 +474,65 @@ pub const ITYPE_LIST: [InstructionDefinition; 15] = [
                     },
                     flush: true,
                     new_pc,
+                    trap_type: None,
+                }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+    InstructionDefinition {
+        mask: MASK_ECALL,
+        match_val: MATCH_ECALL,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_itype(instruction, registers)),
+            memory_operation: None,
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Itype {
+                    ..
+                }) = &id_ex.operands
+                {
+                ExecuteResult {
+                    ex_mem: EXMEM {
+                        rd: None,
+                        calculation_result: 0,
+                        memory_operation: None,
+                        operands: id_ex.operands.clone(),
+                    },
+                    flush: true,
+                    new_pc: None,
+                    trap_type: Some(TrapType::Ecall),
+                }
+                } else {
+                    unreachable!()
+                }
+            },
+        },
+    },
+    InstructionDefinition {
+        mask: MASK_EBREAK,
+        match_val: MATCH_EBREAK,
+        decode: |instruction, registers, address| IDEX {
+            operands: Some(extract_itype(instruction, registers)),
+            memory_operation: None,
+            address,
+            execute: |id_ex| {
+                if let Some(OperandsFormat::Itype {
+                    ..
+                }) = &id_ex.operands
+                {
+                ExecuteResult {
+                    ex_mem: EXMEM {
+                        rd: None,
+                        calculation_result: 0,
+                        memory_operation: None,
+                        operands: id_ex.operands.clone(),
+                    },
+                    flush: true,
+                    new_pc: None,
+                    trap_type: Some(TrapType::Ebreak),
                 }
                 } else {
                     unreachable!()

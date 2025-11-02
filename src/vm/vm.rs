@@ -8,6 +8,10 @@ use super::{
     utypes::UTYPE_LIST,
 };
 
+unsafe extern "C" {
+    fn ecall(arguments: &[i32; 8]) -> u32;
+}
+
 pub enum HazardAction {
     None,
     Stall,

@@ -58,6 +58,12 @@ pub enum OperandsFormat {
     },
 }
 
+#[derive(Debug, Clone)]
+pub enum TrapType{
+    Ecall,
+    Ebreak
+}
+
 #[derive(Clone)]
 pub struct InstructionDefinition {
     pub mask: u32,
@@ -70,6 +76,7 @@ pub struct ExecuteResult {
     pub ex_mem: EXMEM,
     pub flush: bool,
     pub new_pc: Option<usize>,
+    pub trap_type: Option<TrapType>
 }
 
 #[derive(Debug, Clone)]

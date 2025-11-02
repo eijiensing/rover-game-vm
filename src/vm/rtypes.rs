@@ -42,6 +42,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -70,6 +71,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -98,6 +100,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -126,6 +129,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -154,6 +158,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -184,6 +189,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -213,6 +219,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -242,6 +249,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -271,6 +279,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -304,6 +313,7 @@ pub const RTYPE_LIST: [InstructionDefinition; 10] = [
                         },
                         flush: false,
                         new_pc: None,
+                    trap_type: None,
                     }
                 } else {
                     unreachable!()

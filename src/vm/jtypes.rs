@@ -39,6 +39,7 @@ pub const JTYPE_LIST: [InstructionDefinition; 1] = [InstructionDefinition {
                     },
                     flush: true,
                     new_pc,
+                    trap_type: None,
                 }
             } else {
                 unreachable!()

@@ -59,6 +59,7 @@ pub const BTYPE_LIST: [InstructionDefinition; 6] = [
                         },
                         flush,
                         new_pc,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -97,6 +98,7 @@ pub const BTYPE_LIST: [InstructionDefinition; 6] = [
                         },
                         flush,
                         new_pc,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -135,6 +137,7 @@ pub const BTYPE_LIST: [InstructionDefinition; 6] = [
                         },
                         flush,
                         new_pc,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -173,6 +176,7 @@ pub const BTYPE_LIST: [InstructionDefinition; 6] = [
                         },
                         flush,
                         new_pc,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -211,6 +215,7 @@ pub const BTYPE_LIST: [InstructionDefinition; 6] = [
                         },
                         flush,
                         new_pc,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -249,6 +254,7 @@ pub const BTYPE_LIST: [InstructionDefinition; 6] = [
                         },
                         flush,
                         new_pc,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
