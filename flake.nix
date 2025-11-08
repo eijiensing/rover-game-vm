@@ -13,6 +13,7 @@
   in {
     devShell.x86_64-linux = pkgs.mkShell {
       buildInputs = [
+        pkgs.rust-analyzer
         pkgs.cargo
         pkgs.rustc
       ];

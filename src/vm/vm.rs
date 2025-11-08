@@ -1,6 +1,6 @@
 use super::{
     btypes::BTYPE_LIST,
-    common::{EXMEM, IDEX, IFID, InstructionDefinition, MEMWB, MemoryRange, OperandsFormat},
+    common::{InstructionDefinition, MemoryRange, OperandsFormat, TrapType, EXMEM, IDEX, IFID, MEMWB},
     itypes::ITYPE_LIST,
     jtypes::JTYPE_LIST,
     rtypes::RTYPE_LIST,
@@ -8,8 +8,11 @@ use super::{
     utypes::UTYPE_LIST,
 };
 
-unsafe extern "C" {
-    fn ecall(arguments: &[i32; 8]) -> u32;
+pub enum VmError { Trap, InvalidSyscall }
+
+pub trait VMEnvironment {
+    fn ecall(&self, arguments: &[i32]) -> Result<u32, VmError>;
+    fn ebreak(&self) -> ();
 }
 
 pub enum HazardAction {
@@ -20,7 +23,8 @@ pub enum HazardAction {
 }
 
 #[derive(Default)]
-pub struct VM {
+pub struct VM<T: VMEnvironment> {
+    vm_environment: T,
     instruction_definitions: Vec<InstructionDefinition>,
     memory: Vec<u8>,
     registers: [i32; 32],
@@ -33,8 +37,8 @@ pub struct VM {
     mem_wb: Option<MEMWB>,
 }
 
-impl VM {
-    pub fn new(memory: Vec<u8>) -> Self {
+impl<T: VMEnvironment> VM<T> {
+    pub fn new(memory: Vec<u8>, vm_environment: T) -> Self {
         let instruction_definitions: Vec<InstructionDefinition> = [
             &RTYPE_LIST[..],
             &ITYPE_LIST[..],
@@ -56,6 +60,7 @@ impl VM {
             mem_wb: None,
             instruction_definitions,
             stall: false,
+            vm_environment,
         }
     }
 
@@ -203,6 +208,15 @@ impl VM {
             self.id_ex = None;
         }
 
+        if let Some(trap_type) = result.trap_type {
+            match trap_type {
+                TrapType::Ecall => {
+                    self.vm_environment.ecall(&self.registers[10..17]);
+                },
+                TrapType::Ebreak => self.vm_environment.ebreak(),
+            }
+        }
+
         self.ex_mem = Some(result.ex_mem);
     }
 
@@ -309,7 +323,19 @@ impl VM {
 
 #[cfg(test)]
 mod tests {
-    use super::VM;
+    use super::{VMEnvironment, VM};
+
+    struct MockEnv {}
+
+    impl VMEnvironment for MockEnv {
+        fn ecall(&self, arguments: &[i32]) -> Result<u32, super::VmError> {
+            Ok(0)
+        }
+
+        fn ebreak(&self) -> () {
+            ()
+        }
+    }
 
     // === DATA HAZARDS ==============
 
@@ -317,7 +343,7 @@ mod tests {
     fn test_data_hazard_addi() {
         // ADDI x8, x0, 5
         // ADDI x9, x8, 5
-        let mut vm = VM::new(vec![0x13, 0x04, 0x50, 0x00, 0x93, 0x04, 0x54, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0x04, 0x50, 0x00, 0x93, 0x04, 0x54, 0x00], MockEnv {});
         vm.run();
         assert_eq!(vm.registers[8], 5);
         assert_eq!(vm.registers[9], 10);
@@ -328,7 +354,7 @@ mod tests {
     fn test_data_hazard_lb() {
         // LB x8, 8(x0)
         // ADDI x9, x8, 5
-        let mut vm = VM::new(vec![0x03, 0x04, 0x80, 0x00, 0x93, 0x04, 0x54, 0x00, 0x05]);
+        let mut vm = VM::new(vec![0x03, 0x04, 0x80, 0x00, 0x93, 0x04, 0x54, 0x00, 0x05], MockEnv {});
         vm.run();
         assert_eq!(vm.registers[8], 5);
         assert_eq!(vm.registers[9], 10);
@@ -342,7 +368,7 @@ mod tests {
         // ADDI x10, x9, 5
         let mut vm = VM::new(vec![
             0x03, 0x04, 0xc0, 0x00, 0x93, 0x04, 0x54, 0x00, 0x13, 0x85, 0x54, 0x00, 0x05,
-        ]);
+        ], MockEnv {});
         vm.run();
         assert_eq!(vm.registers[8], 5);
         assert_eq!(vm.registers[9], 10);
@@ -356,7 +382,7 @@ mod tests {
         // SB x8, 9(x0)
         let mut vm = VM::new(vec![
             0x03, 0x04, 0x80, 0x00, 0xa3, 0x04, 0x80, 0x00, 0x01, 0x02,
-        ]);
+        ], MockEnv {});
         vm.registers[8] = 5;
         vm.run();
         assert_eq!(vm.registers[8], 0x01);
@@ -374,7 +400,7 @@ mod tests {
         let mut vm = VM::new(vec![
             0x93, 0x00, 0x10, 0x00, 0x63, 0x84, 0x20, 0x00, 0x93, 0x01, 0x50, 0x00, 0x13, 0x02,
             0x50, 0x00,
-        ]);
+        ], MockEnv {});
         vm.registers[2] = 1;
         vm.run();
 
@@ -394,7 +420,7 @@ mod tests {
             0x93, 0x04, 0xa0, 0x00, 0x13, 0x04, 0x14, 0x00, 0xe3, 0x1e, 0x94, 0xfe,
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.run();
 
         assert_eq!(vm.registers[8], 10);
@@ -412,7 +438,7 @@ mod tests {
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.run();
 
         assert_eq!(vm.registers[1], 4); // x1 = return address (pc + 4 before jump)
@@ -423,13 +449,13 @@ mod tests {
     #[test]
     fn test_cycle_count() {
         // ADDI x0 x0 0
-        let mut vm = VM::new(vec![0x13, 0x00, 0x00, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0x00, 0x00, 0x00], MockEnv {});
         vm.run();
         assert_eq!(vm.cycle, 5);
 
         // ADDI x0 x0 0
         // ADDI x0 x0 0
-        let mut vm = VM::new(vec![0x13, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00], MockEnv {});
         vm.run();
         assert_eq!(vm.cycle, 6);
 
@@ -438,7 +464,7 @@ mod tests {
         // ADDI x0 x0 0
         let mut vm = VM::new(vec![
             0x13, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00,
-        ]);
+        ], MockEnv {});
         vm.run();
         assert_eq!(vm.cycle, 7);
     }
@@ -449,7 +475,7 @@ mod tests {
         // LB x8, 9(x0)
         let mut vm = VM::new(vec![
             0x03, 0x04, 0x80, 0x00, 0x03, 0x04, 0x90, 0x00, 0x01, 0x02,
-        ]);
+        ], MockEnv {});
         vm.run();
         assert_eq!(vm.registers[8], 0x02);
         assert_eq!(vm.cycle, 6); // no stalls
@@ -460,7 +486,7 @@ mod tests {
         // read after write
         // SB x0, 8(x0)
         // LB x9, 8(x0)
-        let mut vm = VM::new(vec![0x23, 0x04, 0x00, 0x00, 0x83, 0x04, 0x80, 0x00, 0x01]);
+        let mut vm = VM::new(vec![0x23, 0x04, 0x00, 0x00, 0x83, 0x04, 0x80, 0x00, 0x01], MockEnv {});
         vm.registers[9] = 5;
         vm.run();
         assert_eq!(vm.registers[9], 0x00);
@@ -472,7 +498,7 @@ mod tests {
     #[test]
     fn test_add() {
         // ADD x1, x2, x3
-        let mut vm = VM::new(vec![0xb3, 0x00, 0x31, 0x00]);
+        let mut vm = VM::new(vec![0xb3, 0x00, 0x31, 0x00], MockEnv {});
         vm.registers[2] = 1;
         vm.registers[3] = 2;
         vm.step_no_pipeline();
@@ -482,7 +508,7 @@ mod tests {
     #[test]
     fn test_sub() {
         // SUB x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0x84, 0xa4, 0x40]);
+        let mut vm = VM::new(vec![0x33, 0x84, 0xa4, 0x40], MockEnv {});
         vm.registers[9] = 2;
         vm.registers[10] = 1;
         vm.step_no_pipeline();
@@ -492,7 +518,7 @@ mod tests {
     #[test]
     fn test_xor() {
         // XOR x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xc4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xc4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = 0b11111000;
         vm.registers[10] = 0b00011110;
         vm.step_no_pipeline();
@@ -502,7 +528,7 @@ mod tests {
     #[test]
     fn test_or() {
         // OR x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xe4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xe4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = 0b11111000;
         vm.registers[10] = 0b00011110;
         vm.step_no_pipeline();
@@ -512,7 +538,7 @@ mod tests {
     #[test]
     fn test_and() {
         // AND x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xf4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xf4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = 0b11111000;
         vm.registers[10] = 0b00011110;
         vm.step_no_pipeline();
@@ -522,7 +548,7 @@ mod tests {
     #[test]
     fn test_sll() {
         // SLL x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0x94, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0x94, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = 0b00000000_00000000_00000000_11111000;
         vm.registers[10] = 2;
         vm.step_no_pipeline();
@@ -532,14 +558,14 @@ mod tests {
     #[test]
     fn test_srl() {
         // SRL x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = 0b00000000_00000000_00000000_11111000;
         vm.registers[10] = 2;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b00000000_00000000_00000000_00111110);
 
         // SRL x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = -8; // 00000000_00000000_11111111_11111000
         vm.registers[10] = 2;
         vm.step_no_pipeline();
@@ -549,14 +575,14 @@ mod tests {
     #[test]
     fn test_sra() {
         // SRA x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x40]);
+        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x40], MockEnv {});
         vm.registers[9] = 0b00000000_00000000_00000000_11111000;
         vm.registers[10] = 2;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b00000000_00000000_00000000_00111110);
 
         // SRA x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x40]);
+        let mut vm = VM::new(vec![0x33, 0xd4, 0xa4, 0x40], MockEnv {});
         vm.registers[9] = -8;
         vm.registers[10] = 2;
         vm.step_no_pipeline();
@@ -566,14 +592,14 @@ mod tests {
     #[test]
     fn test_slt() {
         // SLT x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xa4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xa4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = 1;
         vm.registers[10] = 2;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 1);
 
         // SLT x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xa4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xa4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = -2;
         vm.registers[10] = 1;
         vm.step_no_pipeline();
@@ -583,14 +609,14 @@ mod tests {
     #[test]
     fn test_sltu() {
         // SLTU x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xb4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xb4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = 1;
         vm.registers[10] = 2;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 1);
 
         // SLTU x8, x9, x10
-        let mut vm = VM::new(vec![0x33, 0xb4, 0xa4, 0x00]);
+        let mut vm = VM::new(vec![0x33, 0xb4, 0xa4, 0x00], MockEnv {});
         vm.registers[9] = -2;
         vm.registers[10] = 1;
         vm.step_no_pipeline();
@@ -603,7 +629,7 @@ mod tests {
     fn test_addi() {
         // ADDI x1, x0, 5
         // 000000000101 00000 000 00001 0010011
-        let mut vm = VM::new(vec![0x93, 0x00, 0x50, 0x00]);
+        let mut vm = VM::new(vec![0x93, 0x00, 0x50, 0x00], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 5);
     }
@@ -611,7 +637,7 @@ mod tests {
     #[test]
     fn test_addi_x0_remain_0() {
         // ADDI x0, x0, 5
-        let mut vm = VM::new(vec![0x13, 0x00, 0x50, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0x00, 0x50, 0x00], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[0], 0);
     }
@@ -620,7 +646,7 @@ mod tests {
     fn test_xori() {
         // XORI x8, x9, 49
         // 49 == 0b00110001
-        let mut vm = VM::new(vec![0x13, 0xc4, 0x14, 0x03]);
+        let mut vm = VM::new(vec![0x13, 0xc4, 0x14, 0x03], MockEnv {});
         vm.registers[9] = 97; // 0b01100001
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b01010000);
@@ -630,7 +656,7 @@ mod tests {
     fn test_ori() {
         // ORI x8, x9, 49
         // 49 == 0b00110001
-        let mut vm = VM::new(vec![0x13, 0xe4, 0x14, 0x03]);
+        let mut vm = VM::new(vec![0x13, 0xe4, 0x14, 0x03], MockEnv {});
         vm.registers[9] = 97; // 0b01100001
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b01110001);
@@ -640,7 +666,7 @@ mod tests {
     fn test_andi() {
         // ANDI x8, x9, 49
         // 49 == 0b00110001
-        let mut vm = VM::new(vec![0x13, 0xf4, 0x14, 0x03]);
+        let mut vm = VM::new(vec![0x13, 0xf4, 0x14, 0x03], MockEnv {});
         vm.registers[9] = 97; // 0b01100001
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b00100001);
@@ -649,7 +675,7 @@ mod tests {
     #[test]
     fn test_slli() {
         // SLLI x8, x9, 2
-        let mut vm = VM::new(vec![0x13, 0x94, 0x24, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0x94, 0x24, 0x00], MockEnv {});
         vm.registers[9] = 97; // 0b01100001
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b00000001_10000100);
@@ -658,7 +684,7 @@ mod tests {
     #[test]
     fn test_srli() {
         // SRLI x8, x9, 2
-        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x00], MockEnv {});
         vm.registers[9] = 97; // 0b01100001
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b00011000);
@@ -667,13 +693,13 @@ mod tests {
     #[test]
     fn test_srai() {
         // SRAI x8, x9, 2
-        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x40]);
+        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x40], MockEnv {});
         vm.registers[9] = 97; // 0b01100001
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0b00011000);
 
         // SRAI x8, x9, 2
-        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x40]);
+        let mut vm = VM::new(vec![0x13, 0xd4, 0x24, 0x40], MockEnv {});
         vm.registers[9] = -8;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], -2);
@@ -682,13 +708,13 @@ mod tests {
     #[test]
     fn test_slti() {
         // SLTI x8, x9, 2
-        let mut vm = VM::new(vec![0x13, 0xa4, 0x24, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0xa4, 0x24, 0x00], MockEnv {});
         vm.registers[9] = 1;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 1);
 
         // SLTI x8, x9, 1
-        let mut vm = VM::new(vec![0x13, 0xa4, 0x14, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0xa4, 0x14, 0x00], MockEnv {});
         vm.registers[9] = -2;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 1);
@@ -697,13 +723,13 @@ mod tests {
     #[test]
     fn test_sltiu() {
         // SLTIU x8, x9, 2
-        let mut vm = VM::new(vec![0x13, 0xb4, 0x24, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0xb4, 0x24, 0x00], MockEnv {});
         vm.registers[9] = 1;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 1);
 
         // SLTIU x8, x9, 1
-        let mut vm = VM::new(vec![0x13, 0xb4, 0x14, 0x00]);
+        let mut vm = VM::new(vec![0x13, 0xb4, 0x14, 0x00], MockEnv {});
         vm.registers[9] = -2;
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 0);
@@ -712,13 +738,13 @@ mod tests {
     #[test]
     fn test_lb() {
         // LB x8, 4(x0)
-        let mut vm = VM::new(vec![0x03, 0x04, 0x40, 0x00, 0x7F]);
+        let mut vm = VM::new(vec![0x03, 0x04, 0x40, 0x00, 0x7F], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], i8::MAX as i32); // 127
 
 
         // LB x8, 4(x0)
-        let mut vm = VM::new(vec![0x03, 0x04, 0x40, 0x00, 0x80]);
+        let mut vm = VM::new(vec![0x03, 0x04, 0x40, 0x00, 0x80], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], i8::MIN as i32); // -128
     }
@@ -726,12 +752,12 @@ mod tests {
     #[test]
     fn test_lh() {
         // LH x8, 4(x0)
-        let mut vm = VM::new(vec![0x03, 0x14, 0x40, 0x00, 0xFF, 0x7F]);
+        let mut vm = VM::new(vec![0x03, 0x14, 0x40, 0x00, 0xFF, 0x7F], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], i16::MAX as i32); // 32767
 
         // LH x8, 4(x0)
-        let mut vm = VM::new(vec![0x03, 0x14, 0x40, 0x00, 0x00, 0x80]);
+        let mut vm = VM::new(vec![0x03, 0x14, 0x40, 0x00, 0x00, 0x80], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], i16::MIN as i32); // -32768
     }
@@ -742,7 +768,7 @@ mod tests {
         let mut vm = VM::new(vec![
             0x03, 0x24, 0x40, 0x00, 
             0xFF, 0xFF, 0xFF, 0x7F
-        ]);
+        ], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], i32::MAX); // 2147483647
 
@@ -750,7 +776,7 @@ mod tests {
         let mut vm = VM::new(vec![
             0x03, 0x24, 0x40, 0x00, 
             0x00, 0x00, 0x00, 0x80
-        ]);
+        ], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], i32::MIN); // -2147483648
     }
@@ -759,7 +785,7 @@ mod tests {
     #[test]
     fn test_lbu() {
         // LBU x8, 4(x0)
-        let mut vm = VM::new(vec![0x03, 0x44, 0x40, 0x00, 0xFF]);
+        let mut vm = VM::new(vec![0x03, 0x44, 0x40, 0x00, 0xFF], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], u8::MAX as i32); // 255
     }
@@ -767,7 +793,7 @@ mod tests {
     #[test]
     fn test_lhu() {
         // LHU x8, 4(x0)
-        let mut vm = VM::new(vec![0x03, 0x54, 0x40, 0x00, 0xFF, 0xFF]);
+        let mut vm = VM::new(vec![0x03, 0x54, 0x40, 0x00, 0xFF, 0xFF], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], u16::MAX as i32); // 65535 
     }
@@ -784,7 +810,7 @@ mod tests {
             0x93, 0x01, 0x30, 0x06,
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.step_no_pipeline(); // JAL
         vm.step_no_pipeline(); // ADDI x3
 
@@ -798,7 +824,7 @@ mod tests {
     #[test]
     fn test_sb() {
         // SB x0, 4(x0)
-        let mut vm = VM::new(vec![0x23, 0x02, 0x00, 0x00, 0x05]);
+        let mut vm = VM::new(vec![0x23, 0x02, 0x00, 0x00, 0x05], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.memory[4], 0x00);
     }
@@ -806,7 +832,7 @@ mod tests {
     #[test]
     fn test_sh() {
         // SH x0, 4(x0)
-        let mut vm = VM::new(vec![0x23, 0x12, 0x00, 0x00, 0x05, 0x06]);
+        let mut vm = VM::new(vec![0x23, 0x12, 0x00, 0x00, 0x05, 0x06], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.memory[4], 0x00);
         assert_eq!(vm.memory[5], 0x00);
@@ -815,7 +841,7 @@ mod tests {
     #[test]
     fn test_sw() {
         // SW x0, 4(x0)
-        let mut vm = VM::new(vec![0x23, 0x22, 0x00, 0x00, 0x05, 0x06, 0x07, 0x08]);
+        let mut vm = VM::new(vec![0x23, 0x22, 0x00, 0x00, 0x05, 0x06, 0x07, 0x08], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.memory[4], 0x00);
         assert_eq!(vm.memory[5], 0x00);
@@ -837,7 +863,7 @@ mod tests {
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.step_no_pipeline(); // BEQ
         vm.step_no_pipeline(); // ADDI x3
 
@@ -853,7 +879,7 @@ mod tests {
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.registers[1] = 1;
         vm.step_no_pipeline(); // BEQ
         vm.step_no_pipeline(); // ADDI x3
@@ -875,7 +901,7 @@ mod tests {
             0x13, 0x05, 0x30, 0x06,
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.registers[8] = 1;
         vm.step_no_pipeline();
         vm.step_no_pipeline();
@@ -895,7 +921,7 @@ mod tests {
             0x13, 0x05, 0x30, 0x06,
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.registers[8] = 1;
         vm.step_no_pipeline();
         vm.step_no_pipeline();
@@ -915,7 +941,7 @@ mod tests {
             0x13, 0x05, 0x30, 0x06,
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.registers[8] = -1;
         vm.step_no_pipeline();
         vm.step_no_pipeline();
@@ -935,7 +961,7 @@ mod tests {
             0x13, 0x05, 0x30, 0x06,
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.registers[8] = -1;
         vm.step_no_pipeline();
         vm.step_no_pipeline();
@@ -955,7 +981,7 @@ mod tests {
             0x13, 0x05, 0x30, 0x06,
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.registers[8] = -1;
         vm.step_no_pipeline();
         vm.step_no_pipeline();
@@ -977,7 +1003,7 @@ mod tests {
             0x93, 0x01, 0x30, 0x06, // ADDI x3, x0, 99
         ];
 
-        let mut vm = VM::new(program);
+        let mut vm = VM::new(program, MockEnv {});
         vm.step_no_pipeline(); // JAL
         vm.step_no_pipeline(); // ADDI x3
 
@@ -992,7 +1018,7 @@ mod tests {
     #[test]
     fn test_lui() {
         // LUI x1, 1
-        let mut vm = VM::new(vec![0xb7, 0x10, 0x00, 0x00]);
+        let mut vm = VM::new(vec![0xb7, 0x10, 0x00, 0x00], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[1], 4096);
     }
@@ -1000,7 +1026,7 @@ mod tests {
     #[test]
     fn test_auipc() {
         // AUIPC x8, 1
-        let mut vm = VM::new(vec![0x17, 0x14, 0x00, 0x00]);
+        let mut vm = VM::new(vec![0x17, 0x14, 0x00, 0x00], MockEnv {});
         vm.step_no_pipeline();
         assert_eq!(vm.registers[8], 4096);
     }

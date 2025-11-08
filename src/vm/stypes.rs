@@ -50,6 +50,7 @@ pub const STYPE_LIST: [InstructionDefinition; 3] = [
                         },
                         flush: false,
                         new_pc: None,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -78,6 +79,7 @@ pub const STYPE_LIST: [InstructionDefinition; 3] = [
                         },
                         flush: false,
                         new_pc: None,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -106,6 +108,7 @@ pub const STYPE_LIST: [InstructionDefinition; 3] = [
                         },
                         flush: false,
                         new_pc: None,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()

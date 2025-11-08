@@ -28,6 +28,7 @@ pub const UTYPE_LIST: [InstructionDefinition; 2] = [
                         },
                         flush: false,
                         new_pc: None,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
@@ -53,6 +54,7 @@ pub const UTYPE_LIST: [InstructionDefinition; 2] = [
                         },
                         flush: false,
                         new_pc: None,
+                        trap_type: None,
                     }
                 } else {
                     unreachable!()
