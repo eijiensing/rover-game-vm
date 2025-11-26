@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::{
     btypes::BTYPE_LIST,
     common::{InstructionDefinition, MemoryRange, OperandsFormat, TrapType, EXMEM, IDEX, IFID, MEMWB},
@@ -7,6 +9,18 @@ use super::{
     stypes::STYPE_LIST,
     utypes::UTYPE_LIST,
 };
+
+pub enum BranchSaturatingCounter {
+    StronglyNotTaken,
+    WeaklyNotTaken,
+    WeaklyTaken,
+    StronglyTaken
+}
+
+pub struct BranchData {
+    pub address: usize,
+    pub saturating_counter: BranchSaturatingCounter
+}
 
 pub enum VmError { Trap, InvalidSyscall }
 
@@ -35,6 +49,8 @@ pub struct VM<T: VMEnvironment> {
     id_ex: Option<IDEX>,
     ex_mem: Option<EXMEM>,
     mem_wb: Option<MEMWB>,
+    seen_branches: HashMap<usize, BranchData>,
+    seen_jumps: HashMap<usize, usize>
 }
 
 impl<T: VMEnvironment> VM<T> {
@@ -61,6 +77,8 @@ impl<T: VMEnvironment> VM<T> {
             instruction_definitions,
             stall: false,
             vm_environment,
+            seen_branches: HashMap::new(),
+            seen_jumps: HashMap::new(),
         }
     }
 
@@ -198,6 +216,15 @@ impl<T: VMEnvironment> VM<T> {
         };
 
         let result = (id_ex.execute)(id_ex);
+
+
+        if let Some(operands) = &result.ex_mem.operands {
+            match operands {
+                // OperandsFormat::Btype { r1, r2, r1_val, r2_val, imm } => todo!(),
+                OperandsFormat::Jtype { .. } => { self.seen_jumps.insert(id_ex.address, result.new_pc.unwrap()); },
+                _ => ()
+            }
+        }
 
         if let Some(new_pc) = result.new_pc {
             self.pc = new_pc;
